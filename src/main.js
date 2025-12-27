@@ -172,6 +172,12 @@ window.addEventListener('resize', () => {
     setTimeout(currentScene.resizeHandler, 100);
 }, true);
 
+// Market data key for current session
+var currentMarketDataKey = 'sp500';
+
+// HUD elements
+var marketHUD = null;
+
 function preload ()
 {
     //multiatlas -> key, json file, image file folder
@@ -180,9 +186,18 @@ function preload ()
     this.load.json(vehicleKey, './assets/car/' + vehicleKey + '.json');
 
     backgroundloader = new BackgroundLoader(this);
-    
+
     chunkloader = new ChunkLoader();
     chunkloader.preLoadTileset(this);
+
+    // Load market data
+    marketDataLoader = new MarketDataLoader();
+    marketDataLoader.preload(this, 'sp500', './assets/market/sp500.json');
+    marketDataLoader.preload(this, 'bitcoin', './assets/market/bitcoin.json');
+    marketDataLoader.preload(this, 'meme_stock', './assets/market/meme_stock.json');
+    marketDataLoader.preload(this, 'steady_growth', './assets/market/steady_growth.json');
+    marketDataLoader.preload(this, 'crash_2008', './assets/market/scenarios/crash_2008.json');
+    marketDataLoader.preload(this, 'covid_2020', './assets/market/scenarios/covid_2020.json');
 }
 
 function create ()
@@ -204,29 +219,222 @@ function create ()
         console.log(game.loop.actualFps);
     }, this);
 
-    
+    // Initialize market data and terrain generator
+    initializeMarketTerrain(this);
+
+    // Toggle terrain mode with 'M' key
+    var MKey = this.input.keyboard.addKey('M');
+    MKey.on('down', function () {
+        toggleTerrainMode(this);
+    }, this);
+
+    // Cycle market datasets with 'N' key
+    var NKey = this.input.keyboard.addKey('N');
+    NKey.on('down', function () {
+        cycleMarketDataset(this);
+    }, this);
+
     vehicle = new Vehicle(this, vehicleKey);
-    
+
     this.cameras.main.startFollow(vehicle.mainBody, true, 0.2, 0.2, -screen_width/8, screen_height/8);
     this.cameras.main.setZoom(1.5);
     this.cameras.main.roundPixels = true;
-    
+
     chunkloader.createTileMapSet(this);
     chunkloader.initChunkLoader(this);
 
+    // Create HUD for market info
+    createMarketHUD(this);
 
     this.matter.add.mouseSpring();
-    
+
     cursors = this.input.keyboard.createCursorKeys();
+}
+
+/**
+ * Initialize market terrain system
+ */
+function initializeMarketTerrain(scene) {
+    // Load all market datasets
+    marketDataLoader.loadDataset(scene, 'sp500');
+    marketDataLoader.loadDataset(scene, 'bitcoin');
+    marketDataLoader.loadDataset(scene, 'meme_stock');
+    marketDataLoader.loadDataset(scene, 'steady_growth');
+    marketDataLoader.loadDataset(scene, 'crash_2008');
+    marketDataLoader.loadDataset(scene, 'covid_2020');
+
+    // Set default dataset and activate market mode
+    marketDataLoader.setActiveDataset(currentMarketDataKey);
+    marketTerrainGenerator.setMarketData(marketDataLoader.datasets[currentMarketDataKey]);
+
+    // Start in market mode by default
+    NoiseGenerator.setMode('market');
+
+    console.log('Market terrain initialized with dataset:', currentMarketDataKey);
+}
+
+/**
+ * Toggle between procedural and market terrain modes
+ */
+function toggleTerrainMode(scene) {
+    if (NoiseGenerator.mode === 'procedural') {
+        NoiseGenerator.setMode('market');
+        updateHUDMode('MARKET: ' + currentMarketDataKey.toUpperCase());
+    } else {
+        NoiseGenerator.setMode('procedural');
+        updateHUDMode('PROCEDURAL');
+    }
+}
+
+/**
+ * Cycle through available market datasets
+ */
+function cycleMarketDataset(scene) {
+    const datasets = ['sp500', 'bitcoin', 'meme_stock', 'steady_growth', 'crash_2008', 'covid_2020'];
+    const currentIdx = datasets.indexOf(currentMarketDataKey);
+    const nextIdx = (currentIdx + 1) % datasets.length;
+
+    currentMarketDataKey = datasets[nextIdx];
+
+    // Update market terrain generator
+    marketDataLoader.setActiveDataset(currentMarketDataKey);
+    marketTerrainGenerator.setMarketData(marketDataLoader.datasets[currentMarketDataKey]);
+    marketTerrainGenerator.reset();
+
+    // Ensure we're in market mode
+    NoiseGenerator.setMode('market');
+
+    updateHUDMode('MARKET: ' + currentMarketDataKey.toUpperCase());
+    updateHUDDataset(marketDataLoader.getDatasetInfo(currentMarketDataKey));
+
+    console.log('Switched to market dataset:', currentMarketDataKey);
+}
+
+/**
+ * Create HUD overlay for market information
+ */
+function createMarketHUD(scene) {
+    // Create HUD container (fixed to camera)
+    marketHUD = {
+        mode: null,
+        dataset: null,
+        regime: null,
+        price: null,
+        container: null
+    };
+
+    // Mode indicator
+    marketHUD.mode = scene.add.text(16, 16, 'MARKET: ' + currentMarketDataKey.toUpperCase(), {
+        fontFamily: 'monospace',
+        fontSize: '18px',
+        color: '#00ff00',
+        backgroundColor: '#000000aa',
+        padding: { x: 8, y: 4 }
+    }).setScrollFactor(0).setDepth(1000);
+
+    // Dataset info
+    const datasetInfo = marketDataLoader.getDatasetInfo(currentMarketDataKey);
+    const infoText = datasetInfo ? datasetInfo.name : 'Loading...';
+    marketHUD.dataset = scene.add.text(16, 48, infoText, {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#ffffff',
+        backgroundColor: '#000000aa',
+        padding: { x: 8, y: 4 }
+    }).setScrollFactor(0).setDepth(1000);
+
+    // Market regime indicator
+    marketHUD.regime = scene.add.text(16, 80, 'Regime: --', {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#ffff00',
+        backgroundColor: '#000000aa',
+        padding: { x: 8, y: 4 }
+    }).setScrollFactor(0).setDepth(1000);
+
+    // Controls hint
+    scene.add.text(16, screen_height - 40, 'M: Toggle Mode | N: Next Dataset | F: Fullscreen', {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#aaaaaa',
+        backgroundColor: '#000000aa',
+        padding: { x: 8, y: 4 }
+    }).setScrollFactor(0).setDepth(1000);
+}
+
+/**
+ * Update HUD mode display
+ */
+function updateHUDMode(modeText) {
+    if (marketHUD && marketHUD.mode) {
+        marketHUD.mode.setText(modeText);
+
+        // Color based on mode
+        if (modeText.includes('MARKET')) {
+            marketHUD.mode.setColor('#00ff00');
+        } else {
+            marketHUD.mode.setColor('#ffaa00');
+        }
+    }
+}
+
+/**
+ * Update HUD dataset info
+ */
+function updateHUDDataset(datasetInfo) {
+    if (marketHUD && marketHUD.dataset && datasetInfo) {
+        marketHUD.dataset.setText(datasetInfo.name + ' (' + datasetInfo.symbol + ')');
+    }
+}
+
+/**
+ * Update HUD with current market regime
+ */
+function updateHUDRegime() {
+    if (!marketHUD || !marketHUD.regime || !NoiseGenerator.isMarketMode()) {
+        return;
+    }
+
+    const metadata = marketTerrainGenerator.getTerrainMetadata();
+
+    let regimeText = 'Regime: ' + metadata.regime;
+    let regimeColor = '#ffffff';
+
+    switch (metadata.regime) {
+        case 'BULL':
+            regimeColor = '#4CAF50'; // Green
+            break;
+        case 'BEAR':
+            regimeColor = '#F44336'; // Red
+            break;
+        case 'CRASH':
+            regimeColor = '#9C27B0'; // Purple
+            break;
+        case 'CHOP':
+            regimeColor = '#FFC107'; // Yellow
+            break;
+    }
+
+    if (metadata.date) {
+        regimeText += ' | ' + metadata.date;
+    }
+    if (metadata.dailyReturn !== undefined) {
+        const returnStr = metadata.dailyReturn >= 0 ? '+' : '';
+        regimeText += ' | ' + returnStr + metadata.dailyReturn.toFixed(2) + '%';
+    }
+
+    marketHUD.regime.setText(regimeText);
+    marketHUD.regime.setColor(regimeColor);
 }
 
 function update()
 {
-    
     vehicle.processKey(cursors);
     chunkloader.processChunk(this, vehicle.mainBody.x);
     backgroundloader.updateBackground(this, vehicle.mainBody.x);
-    
+
+    // Update market HUD
+    updateHUDRegime();
 }
 
 

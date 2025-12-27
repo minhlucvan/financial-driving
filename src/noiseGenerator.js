@@ -1,5 +1,9 @@
 /**
  * genrate curve which will be used for generation of terrain.
+ *
+ * Supports two modes:
+ * 1. Procedural (default) - Random terrain using cosine interpolation
+ * 2. Market Data - Terrain generated from financial price data
  */
 
 function interpolate(pa, pb, px)
@@ -15,12 +19,43 @@ class NoiseGenerator
 {
     static curve_debug = false;
 
+    // Terrain generation mode: 'procedural' or 'market'
+    static mode = 'procedural';
+
     /**
-     * 
+     * Set terrain generation mode
+     * @param {string} newMode - 'procedural' or 'market'
+     */
+    static setMode(newMode) {
+        if (newMode === 'procedural' || newMode === 'market') {
+            NoiseGenerator.mode = newMode;
+            console.log('Terrain mode set to:', newMode);
+        } else {
+            console.warn('Invalid terrain mode:', newMode);
+        }
+    }
+
+    /**
+     * Check if using market data mode
+     */
+    static isMarketMode() {
+        return NoiseGenerator.mode === 'market' &&
+               typeof marketTerrainGenerator !== 'undefined' &&
+               marketTerrainGenerator.isActive;
+    }
+
+    /**
+     *
      * @returns selectes a generator function and returns it
      */
     static getCurve()
     {
+        // If market mode is active and we have data, use market generator
+        if (NoiseGenerator.isMarketMode()) {
+            return (param, tileSize) => marketTerrainGenerator.generateCurve(param, tileSize);
+        }
+
+        // Default: procedural generation
         return NoiseGenerator.cosineInterpolation;
         // return NoiseGenerator.sinCurve;
     }
