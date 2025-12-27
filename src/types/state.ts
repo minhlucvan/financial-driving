@@ -2,7 +2,15 @@
 
 import type { ProcessedCandle, MarketIndicators, MarketRegime, ChartCandle } from './market';
 import type { TimelineState, PlaybackMode } from './timeline';
-import type { WealthState, VehicleState, PositionState, ViewMode, GameState as GamePlayState } from './game';
+import type {
+  WealthState,
+  VehicleState,
+  PositionState,
+  ViewMode,
+  GameState as GamePlayState,
+  PortfolioState,
+  BacktestTick,
+} from './game';
 
 // ============================================
 // MARKET STATE - Derived from timeline position
@@ -12,7 +20,7 @@ export interface CurrentMarketState {
   // Current bar data
   currentCandle: ProcessedCandle | null;
   currentPrice: number;
-  currentReturn: number; // cumulative return from start
+  currentReturn: number; // cumulative return from start (market return, not portfolio)
 
   // Historical data for chart (up to current index)
   visibleCandles: ChartCandle[];
@@ -23,7 +31,7 @@ export interface CurrentMarketState {
   // Market regime
   regime: MarketRegime;
 
-  // Derived terrain data
+  // Derived terrain data (from market)
   terrainSlope: number;       // -32 to +32
   roadRoughness: number;      // 0 to 1
   tractionMultiplier: number; // 0.5 to 1
@@ -34,9 +42,15 @@ export interface CurrentMarketState {
 // ============================================
 
 export interface TerrainState {
-  currentSlope: number;
-  currentRoughness: number;
-  leverageAmplification: number; // How much leverage affects slope
+  // Road geometry based on accumulated return
+  roadHeight: number;         // Y position of road based on accumulated return
+  roadHeightDelta: number;    // Change in height from last tick (for slope)
+  currentSlope: number;       // Derived slope from height delta
+  currentRoughness: number;   // Road roughness (volatility)
+
+  // Modifiers
+  leverageAmplification: number; // How much leverage affects terrain
+  exposureMultiplier: number;    // How much exposure affects terrain (0 when flat)
 }
 
 export interface PhysicsModifiers {
@@ -44,6 +58,32 @@ export interface PhysicsModifiers {
   brakeMultiplier: number;      // Based on cash buffer
   tractionMultiplier: number;   // Based on volatility/RSI
   recoveryDrag: number;         // Based on drawdown
+}
+
+// ============================================
+// BACKTEST ENGINE STATE
+// ============================================
+
+export interface BacktestEngineState {
+  // Current tick
+  currentTick: number;
+  totalTicks: number;
+
+  // Portfolio state
+  portfolio: PortfolioState;
+
+  // Tick history for road generation
+  tickHistory: BacktestTick[];
+
+  // Engine settings
+  tickDuration: number;       // How long each tick represents (in days)
+  maxLeverage: number;        // Maximum allowed leverage
+  marginCallLevel: number;    // Equity level that triggers margin call
+
+  // Flags
+  isRunning: boolean;
+  isPaused: boolean;
+  isMarginCalled: boolean;
 }
 
 // ============================================
@@ -61,19 +101,22 @@ export interface UnifiedAppState {
   // Market state (derived from timeline)
   market: CurrentMarketState;
 
-  // Terrain state (derived from market)
+  // Terrain state (derived from portfolio accumulated return)
   terrain: TerrainState;
 
-  // Wealth/Financial state
+  // Backtest engine (new)
+  backtest: BacktestEngineState;
+
+  // Legacy: Wealth/Financial state (kept for compatibility)
   wealth: WealthState;
 
-  // Trading position
+  // Legacy: Trading position (single position - kept for compatibility)
   position: PositionState;
 
   // Vehicle physics state
   vehicle: VehicleState;
 
-  // Physics modifiers (derived from wealth + market)
+  // Physics modifiers (derived from portfolio + market)
   physics: PhysicsModifiers;
 
   // UI state
@@ -144,9 +187,43 @@ export const INITIAL_MARKET_STATE: CurrentMarketState = {
 };
 
 export const INITIAL_TERRAIN_STATE: TerrainState = {
+  roadHeight: 0,
+  roadHeightDelta: 0,
   currentSlope: 0,
   currentRoughness: 0,
   leverageAmplification: 1,
+  exposureMultiplier: 0,  // No exposure = flat terrain
+};
+
+export const INITIAL_PORTFOLIO_STATE: PortfolioState = {
+  initialCapital: 10000,
+  cash: 10000,
+  equity: 10000,
+  positions: [],
+  closedPositions: [],
+  totalExposure: 0,
+  totalUnrealizedPnL: 0,
+  totalRealizedPnL: 0,
+  accumulatedReturn: 0,
+  accumulatedReturnDollar: 0,
+  drawdown: 0,
+  maxDrawdown: 0,
+  peakEquity: 10000,
+  marginUsage: 0,
+  stressLevel: 0,
+};
+
+export const INITIAL_BACKTEST_STATE: BacktestEngineState = {
+  currentTick: 0,
+  totalTicks: 0,
+  portfolio: INITIAL_PORTFOLIO_STATE,
+  tickHistory: [],
+  tickDuration: 1,      // 1 day per tick
+  maxLeverage: 3,       // Max 3x leverage
+  marginCallLevel: 0.2, // Margin call at 20% equity
+  isRunning: false,
+  isPaused: true,
+  isMarginCalled: false,
 };
 
 export const INITIAL_PHYSICS_MODIFIERS: PhysicsModifiers = {
@@ -194,6 +271,7 @@ export const INITIAL_APP_STATE: UnifiedAppState = {
   timeline: INITIAL_TIMELINE_STATE,
   market: INITIAL_MARKET_STATE,
   terrain: INITIAL_TERRAIN_STATE,
+  backtest: INITIAL_BACKTEST_STATE,
   wealth: INITIAL_WEALTH_STATE,
   position: INITIAL_POSITION_STATE,
   vehicle: INITIAL_VEHICLE_STATE,

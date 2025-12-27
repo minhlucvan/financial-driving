@@ -23,6 +23,12 @@ import type {
   ViewMode,
   GameState,
   MarketIndicators,
+  PortfolioState,
+  Position,
+  ClosedPosition,
+  PositionDirection,
+  BacktestTick,
+  BacktestEngineState,
 } from '../types';
 import {
   INITIAL_APP_STATE,
@@ -33,6 +39,8 @@ import {
   INITIAL_WEALTH_STATE,
   INITIAL_VEHICLE_STATE,
   INITIAL_POSITION_STATE,
+  INITIAL_PORTFOLIO_STATE,
+  INITIAL_BACKTEST_STATE,
 } from '../types/state';
 import type { PlaybackControls } from '../types/timeline';
 
@@ -50,15 +58,21 @@ type AppAction =
   | { type: 'SET_PLAYBACK_MODE'; payload: PlaybackMode }
   | { type: 'SET_PLAYBACK_SPEED'; payload: number }
   | { type: 'TICK'; payload: { deltaTime: number } }
+  // Backtest engine actions
+  | { type: 'BACKTEST_TICK' }  // Advance one tick
+  | { type: 'OPEN_LONG'; payload: { size: number; leverage?: number } }
+  | { type: 'OPEN_SHORT'; payload: { size: number; leverage?: number } }
+  | { type: 'CLOSE_POSITION_BY_ID'; payload: { positionId: string } }
+  | { type: 'CLOSE_ALL_POSITIONS' }
   // Wealth updates
   | { type: 'UPDATE_WEALTH'; payload: Partial<WealthState> }
   | { type: 'SET_LEVERAGE'; payload: number }
   | { type: 'SET_CASH_BUFFER'; payload: number }
   // Vehicle updates (from game)
   | { type: 'UPDATE_VEHICLE'; payload: Partial<VehicleState> }
-  // Position updates
+  // Position updates (legacy single position)
   | { type: 'UPDATE_POSITION'; payload: Partial<PositionState> }
-  // Trading actions
+  // Trading actions (legacy)
   | { type: 'OPEN_POSITION'; payload: { size: number } }
   | { type: 'CLOSE_POSITION' }
   // UI updates
@@ -124,19 +138,64 @@ function calculateIndicators(
   return { rsi, atr, volatility, trend, drawdown, regime };
 }
 
+// Generate unique ID for positions
+function generatePositionId(): string {
+  return `pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Calculate terrain state from portfolio accumulated return
 function calculateTerrainState(
+  portfolio: PortfolioState,
+  market: CurrentMarketState,
+  prevRoadHeight: number = 0
+): TerrainState {
+  // Road height is based on portfolio's accumulated return
+  // Scale: 1% return = 10 pixels of height
+  const RETURN_TO_HEIGHT_SCALE = 10;
+  const roadHeight = portfolio.accumulatedReturn * RETURN_TO_HEIGHT_SCALE;
+  const roadHeightDelta = roadHeight - prevRoadHeight;
+
+  // Convert height delta to slope (-32 to +32 range)
+  // Larger delta = steeper slope
+  const maxDelta = 5; // 5 pixels per tick max change
+  const normalizedDelta = Math.max(-1, Math.min(1, roadHeightDelta / maxDelta));
+  const currentSlope = Math.round(normalizedDelta * 32);
+
+  // Roughness based on market volatility
+  const currentRoughness = Math.min(1, market.roadRoughness);
+
+  // Exposure multiplier - terrain is flat when no positions
+  const exposureMultiplier = portfolio.totalExposure;
+
+  // When no exposure, terrain is flat
+  const effectiveSlope = currentSlope * Math.min(1, exposureMultiplier);
+
+  return {
+    roadHeight,
+    roadHeightDelta,
+    currentSlope: effectiveSlope,
+    currentRoughness: currentRoughness * exposureMultiplier,
+    leverageAmplification: exposureMultiplier,
+    exposureMultiplier,
+  };
+}
+
+// Legacy terrain calculation for backwards compatibility
+function calculateTerrainStateLegacy(
   market: CurrentMarketState,
   leverage: number,
   exposure: number = 0
 ): TerrainState {
-  // When exposure = 0 (no position), terrain is flat
-  // When exposure = 1 (fully invested), terrain reflects market slope * leverage
   const currentSlope = market.terrainSlope * leverage * exposure;
-  // Roughness is also reduced when not invested (smooth ride when in cash)
   const currentRoughness = market.roadRoughness * exposure;
-  const leverageAmplification = leverage * exposure;
-
-  return { currentSlope, currentRoughness, leverageAmplification };
+  return {
+    roadHeight: 0,
+    roadHeightDelta: 0,
+    currentSlope,
+    currentRoughness,
+    leverageAmplification: leverage * exposure,
+    exposureMultiplier: exposure,
+  };
 }
 
 function calculatePhysicsModifiers(
@@ -161,6 +220,190 @@ function calculatePhysicsModifiers(
   const recoveryDrag = wealth.isInRecovery ? 1 + wealth.drawdown * 2 : 1;
 
   return { torqueMultiplier, brakeMultiplier, tractionMultiplier, recoveryDrag };
+}
+
+// ============================================
+// BACKTESTING ENGINE HELPERS
+// ============================================
+
+// Update a single position with current market price
+function updatePosition(position: Position, currentPrice: number): Position {
+  const priceDiff = currentPrice - position.entryPrice;
+  const pnlMultiplier = position.direction === 'long' ? 1 : -1;
+  const unrealizedPnLPercent = (priceDiff / position.entryPrice) * 100 * pnlMultiplier * position.leverage;
+  const positionValue = position.size * position.entryPrice; // Nominal value at entry
+  const unrealizedPnL = positionValue * (unrealizedPnLPercent / 100);
+
+  return {
+    ...position,
+    currentPrice,
+    unrealizedPnL,
+    unrealizedPnLPercent,
+  };
+}
+
+// Update all positions and calculate portfolio metrics
+function updatePortfolio(
+  portfolio: PortfolioState,
+  currentPrice: number,
+  currentIndex: number,
+  currentDate: string
+): PortfolioState {
+  // Update all positions
+  const updatedPositions = portfolio.positions.map(pos => updatePosition(pos, currentPrice));
+
+  // Calculate aggregate metrics
+  const totalUnrealizedPnL = updatedPositions.reduce((sum, pos) => sum + pos.unrealizedPnL, 0);
+  const totalExposure = updatedPositions.reduce((sum, pos) => sum + pos.size, 0);
+
+  // Calculate equity
+  const equity = portfolio.cash + totalUnrealizedPnL;
+
+  // Calculate accumulated return
+  const accumulatedReturnDollar = equity - portfolio.initialCapital + portfolio.totalRealizedPnL;
+  const accumulatedReturn = (accumulatedReturnDollar / portfolio.initialCapital) * 100;
+
+  // Update peak and drawdown
+  const peakEquity = Math.max(portfolio.peakEquity, equity);
+  const drawdown = peakEquity > 0 ? (peakEquity - equity) / peakEquity : 0;
+  const maxDrawdown = Math.max(portfolio.maxDrawdown, drawdown);
+
+  // Calculate stress level based on exposure and drawdown
+  const stressLevel = Math.min(1, (totalExposure * 0.3) + (drawdown * 2));
+
+  // Margin usage (simplified: exposure / max leverage)
+  const marginUsage = totalExposure / 3; // Assuming max 3x leverage
+
+  return {
+    ...portfolio,
+    positions: updatedPositions,
+    equity,
+    totalExposure,
+    totalUnrealizedPnL,
+    accumulatedReturn,
+    accumulatedReturnDollar,
+    peakEquity,
+    drawdown,
+    maxDrawdown,
+    marginUsage,
+    stressLevel,
+  };
+}
+
+// Open a new position
+function openPosition(
+  portfolio: PortfolioState,
+  direction: PositionDirection,
+  size: number,
+  currentPrice: number,
+  currentIndex: number,
+  currentDate: string,
+  leverage: number = 1
+): PortfolioState {
+  // Calculate position size in dollars
+  const availableCash = portfolio.cash;
+  const positionValue = availableCash * size;
+
+  if (positionValue <= 0) return portfolio;
+
+  const newPosition: Position = {
+    id: generatePositionId(),
+    direction,
+    entryPrice: currentPrice,
+    entryIndex: currentIndex,
+    entryTime: currentDate,
+    size,
+    currentPrice,
+    unrealizedPnL: 0,
+    unrealizedPnLPercent: 0,
+    leverage,
+  };
+
+  // Reduce cash by position value (for margin)
+  const newCash = availableCash - positionValue;
+
+  return {
+    ...portfolio,
+    positions: [...portfolio.positions, newPosition],
+    cash: newCash,
+    totalExposure: portfolio.totalExposure + size,
+  };
+}
+
+// Close a specific position
+function closePositionById(
+  portfolio: PortfolioState,
+  positionId: string,
+  currentPrice: number,
+  currentIndex: number
+): PortfolioState {
+  const positionToClose = portfolio.positions.find(p => p.id === positionId);
+  if (!positionToClose) return portfolio;
+
+  // Calculate realized P&L
+  const updatedPosition = updatePosition(positionToClose, currentPrice);
+  const realizedPnL = updatedPosition.unrealizedPnL;
+
+  // Create closed position record
+  const closedPosition: ClosedPosition = {
+    id: positionToClose.id,
+    direction: positionToClose.direction,
+    entryPrice: positionToClose.entryPrice,
+    entryIndex: positionToClose.entryIndex,
+    exitPrice: currentPrice,
+    exitIndex: currentIndex,
+    size: positionToClose.size,
+    realizedPnL,
+    realizedPnLPercent: updatedPosition.unrealizedPnLPercent,
+    holdingPeriod: currentIndex - positionToClose.entryIndex,
+  };
+
+  // Return cash + P&L
+  const returnedCash = positionToClose.size * positionToClose.entryPrice + realizedPnL;
+
+  return {
+    ...portfolio,
+    positions: portfolio.positions.filter(p => p.id !== positionId),
+    closedPositions: [...portfolio.closedPositions, closedPosition],
+    cash: portfolio.cash + returnedCash,
+    totalExposure: portfolio.totalExposure - positionToClose.size,
+    totalRealizedPnL: portfolio.totalRealizedPnL + realizedPnL,
+  };
+}
+
+// Close all positions
+function closeAllPositions(
+  portfolio: PortfolioState,
+  currentPrice: number,
+  currentIndex: number
+): PortfolioState {
+  let updatedPortfolio = { ...portfolio };
+
+  for (const position of portfolio.positions) {
+    updatedPortfolio = closePositionById(updatedPortfolio, position.id, currentPrice, currentIndex);
+  }
+
+  return updatedPortfolio;
+}
+
+// Create a backtest tick record
+function createBacktestTick(
+  index: number,
+  timestamp: string,
+  price: number,
+  portfolio: PortfolioState
+): BacktestTick {
+  // Road height based on accumulated return (1% = 10 pixels)
+  const RETURN_TO_HEIGHT_SCALE = 10;
+
+  return {
+    index,
+    timestamp,
+    price,
+    portfolioValue: portfolio.equity,
+    accumulatedReturn: portfolio.accumulatedReturn,
+    roadHeight: portfolio.accumulatedReturn * RETURN_TO_HEIGHT_SCALE,
+  };
 }
 
 function returnToSlope(dailyReturn: number): number {
@@ -247,7 +490,8 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
     case 'LOAD_DATASET_SUCCESS': {
       const data = action.payload.data;
       const market = deriveMarketState(data, 0);
-      const terrain = calculateTerrainState(market, state.wealth.leverage, state.position.exposure);
+      // Use new portfolio-based terrain calculation
+      const terrain = calculateTerrainState(state.backtest.portfolio, market, 0);
       const physics = calculatePhysicsModifiers(state.wealth, market);
 
       return {
@@ -265,6 +509,10 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
         market,
         terrain,
         physics,
+        backtest: {
+          ...state.backtest,
+          totalTicks: data.length,
+        },
       };
     }
 
@@ -278,7 +526,17 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
     case 'SET_TIMELINE_INDEX': {
       const newIndex = Math.max(0, Math.min(action.payload, state.rawData.length - 1));
       const market = deriveMarketState(state.rawData, newIndex);
-      const terrain = calculateTerrainState(market, state.wealth.leverage, state.position.exposure);
+      const currentDate = market.currentCandle?.date || '';
+
+      // Update portfolio with new price
+      const updatedPortfolio = updatePortfolio(
+        state.backtest.portfolio,
+        market.currentPrice,
+        newIndex,
+        currentDate
+      );
+
+      const terrain = calculateTerrainState(updatedPortfolio, market, state.terrain.roadHeight);
       const physics = calculatePhysicsModifiers(state.wealth, market);
 
       return {
@@ -292,6 +550,11 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
         market,
         terrain,
         physics,
+        backtest: {
+          ...state.backtest,
+          currentTick: newIndex,
+          portfolio: updatedPortfolio,
+        },
       };
     }
 
@@ -335,8 +598,21 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
         state.rawData.length - 1
       );
       const market = deriveMarketState(state.rawData, newIndex);
+      const currentDate = market.currentCandle?.date || '';
 
-      // Calculate position P&L if position is open
+      // Update portfolio with new prices (new system)
+      const updatedPortfolio = updatePortfolio(
+        state.backtest.portfolio,
+        market.currentPrice,
+        newIndex,
+        currentDate
+      );
+
+      // Create tick record
+      const tick = createBacktestTick(newIndex, currentDate, market.currentPrice, updatedPortfolio);
+      const newTickHistory = [...state.backtest.tickHistory, tick];
+
+      // Legacy: Calculate position P&L if position is open (for backward compatibility)
       let newPosition = state.position;
       let newWealth = state.wealth;
 
@@ -368,7 +644,8 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
         };
       }
 
-      const terrain = calculateTerrainState(market, newWealth.leverage, newPosition.exposure);
+      // Use portfolio-based terrain calculation
+      const terrain = calculateTerrainState(updatedPortfolio, market, state.terrain.roadHeight);
       const physics = calculatePhysicsModifiers(newWealth, market);
 
       const shouldPause = newIndex >= state.rawData.length - 1;
@@ -388,13 +665,19 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
         physics,
         position: newPosition,
         wealth: newWealth,
+        backtest: {
+          ...state.backtest,
+          currentTick: newIndex,
+          portfolio: updatedPortfolio,
+          tickHistory: newTickHistory,
+        },
       };
     }
 
     case 'UPDATE_WEALTH': {
       const newWealth = { ...state.wealth, ...action.payload };
       const physics = calculatePhysicsModifiers(newWealth, state.market);
-      const terrain = calculateTerrainState(state.market, newWealth.leverage, state.position.exposure);
+      const terrain = calculateTerrainState(state.backtest.portfolio, state.market, state.terrain.roadHeight);
 
       return {
         ...state,
@@ -407,7 +690,8 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
     case 'SET_LEVERAGE': {
       const leverage = Math.max(0.5, Math.min(3.0, action.payload));
       const newWealth = { ...state.wealth, leverage };
-      const terrain = calculateTerrainState(state.market, leverage, state.position.exposure);
+      // Use portfolio-based terrain calculation
+      const terrain = calculateTerrainState(state.backtest.portfolio, state.market, state.terrain.roadHeight);
       const physics = calculatePhysicsModifiers(newWealth, state.market);
 
       return {
@@ -459,8 +743,8 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
         exposure: size,
       };
 
-      // Recalculate terrain with new exposure (terrain will now reflect market)
-      const terrain = calculateTerrainState(state.market, state.wealth.leverage, size);
+      // Use legacy terrain calculation for backward compatibility
+      const terrain = calculateTerrainStateLegacy(state.market, state.wealth.leverage, size);
 
       return {
         ...state,
@@ -488,7 +772,7 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
       };
 
       // Terrain goes flat when closing position (exposure = 0)
-      const terrain = calculateTerrainState(state.market, state.wealth.leverage, 0);
+      const terrain = calculateTerrainStateLegacy(state.market, state.wealth.leverage, 0);
 
       // Update wealth to reflect realized P&L
       const newWealth: WealthState = {
@@ -501,6 +785,146 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
         position: newPosition,
         terrain,
         wealth: newWealth,
+      };
+    }
+
+    // ============================================
+    // NEW MULTI-POSITION TRADING ACTIONS
+    // ============================================
+
+    case 'OPEN_LONG': {
+      const { size, leverage = 1 } = action.payload;
+      const currentDate = state.market.currentCandle?.date || '';
+      const newPortfolio = openPosition(
+        state.backtest.portfolio,
+        'long',
+        size,
+        state.market.currentPrice,
+        state.timeline.currentIndex,
+        currentDate,
+        leverage
+      );
+
+      const terrain = calculateTerrainState(newPortfolio, state.market, state.terrain.roadHeight);
+
+      return {
+        ...state,
+        backtest: {
+          ...state.backtest,
+          portfolio: newPortfolio,
+        },
+        terrain,
+      };
+    }
+
+    case 'OPEN_SHORT': {
+      const { size, leverage = 1 } = action.payload;
+      const currentDate = state.market.currentCandle?.date || '';
+      const newPortfolio = openPosition(
+        state.backtest.portfolio,
+        'short',
+        size,
+        state.market.currentPrice,
+        state.timeline.currentIndex,
+        currentDate,
+        leverage
+      );
+
+      const terrain = calculateTerrainState(newPortfolio, state.market, state.terrain.roadHeight);
+
+      return {
+        ...state,
+        backtest: {
+          ...state.backtest,
+          portfolio: newPortfolio,
+        },
+        terrain,
+      };
+    }
+
+    case 'CLOSE_POSITION_BY_ID': {
+      const newPortfolio = closePositionById(
+        state.backtest.portfolio,
+        action.payload.positionId,
+        state.market.currentPrice,
+        state.timeline.currentIndex
+      );
+
+      const terrain = calculateTerrainState(newPortfolio, state.market, state.terrain.roadHeight);
+
+      return {
+        ...state,
+        backtest: {
+          ...state.backtest,
+          portfolio: newPortfolio,
+        },
+        terrain,
+      };
+    }
+
+    case 'CLOSE_ALL_POSITIONS': {
+      const newPortfolio = closeAllPositions(
+        state.backtest.portfolio,
+        state.market.currentPrice,
+        state.timeline.currentIndex
+      );
+
+      const terrain = calculateTerrainState(newPortfolio, state.market, state.terrain.roadHeight);
+
+      return {
+        ...state,
+        backtest: {
+          ...state.backtest,
+          portfolio: newPortfolio,
+        },
+        terrain,
+      };
+    }
+
+    case 'BACKTEST_TICK': {
+      // Advance one tick and update portfolio
+      const newIndex = Math.min(state.timeline.currentIndex + 1, state.rawData.length - 1);
+      if (newIndex === state.timeline.currentIndex) return state;
+
+      const market = deriveMarketState(state.rawData, newIndex);
+      const currentDate = market.currentCandle?.date || '';
+
+      // Update portfolio with new prices
+      const newPortfolio = updatePortfolio(
+        state.backtest.portfolio,
+        market.currentPrice,
+        newIndex,
+        currentDate
+      );
+
+      // Create tick record
+      const tick = createBacktestTick(newIndex, currentDate, market.currentPrice, newPortfolio);
+      const newTickHistory = [...state.backtest.tickHistory, tick];
+
+      // Calculate terrain from portfolio accumulated return
+      const terrain = calculateTerrainState(newPortfolio, market, state.terrain.roadHeight);
+      const physics = calculatePhysicsModifiers(state.wealth, market);
+
+      const shouldPause = newIndex >= state.rawData.length - 1;
+
+      return {
+        ...state,
+        timeline: {
+          ...state.timeline,
+          currentIndex: newIndex,
+          canGoBack: newIndex > 0,
+          canGoForward: !shouldPause,
+          mode: shouldPause ? 'paused' : state.timeline.mode,
+        },
+        market,
+        terrain,
+        physics,
+        backtest: {
+          ...state.backtest,
+          currentTick: newIndex,
+          portfolio: newPortfolio,
+          tickHistory: newTickHistory,
+        },
       };
     }
 
@@ -518,8 +942,10 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
 
     case 'RESET_GAME': {
       const market = deriveMarketState(state.rawData, 0);
+      // Reset backtest portfolio
+      const resetPortfolio = { ...INITIAL_PORTFOLIO_STATE };
       // Start with no exposure (flat terrain) until user opens a position
-      const terrain = calculateTerrainState(market, INITIAL_WEALTH_STATE.leverage, INITIAL_POSITION_STATE.exposure);
+      const terrain = calculateTerrainState(resetPortfolio, market, 0);
       const physics = calculatePhysicsModifiers(INITIAL_WEALTH_STATE, market);
 
       return {
@@ -535,6 +961,11 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
         wealth: INITIAL_WEALTH_STATE,
         vehicle: INITIAL_VEHICLE_STATE,
         position: INITIAL_POSITION_STATE,
+        backtest: {
+          ...INITIAL_BACKTEST_STATE,
+          totalTicks: state.rawData.length,
+          portfolio: resetPortfolio,
+        },
         gamePlayState: 'playing',
       };
     }
@@ -566,12 +997,18 @@ interface AppStateContextValue extends UnifiedAppState {
   // Vehicle updates
   updateVehicle: (vehicle: Partial<VehicleState>) => void;
 
-  // Position updates
+  // Position updates (legacy single position)
   updatePosition: (position: Partial<PositionState>) => void;
 
-  // Trading controls
+  // Trading controls (legacy)
   openPosition: (size?: number) => void;
   closePosition: () => void;
+
+  // New multi-position trading controls
+  openLong: (size: number, leverage?: number) => void;
+  openShort: (size: number, leverage?: number) => void;
+  closePositionById: (positionId: string) => void;
+  closeAllPositions: () => void;
 
   // UI controls
   setViewMode: (mode: ViewMode) => void;
@@ -775,6 +1212,23 @@ export function AppStateProvider({
     dispatch({ type: 'CLOSE_POSITION' });
   }, []);
 
+  // New multi-position trading controls
+  const openLong = useCallback((size: number, leverage: number = 1) => {
+    dispatch({ type: 'OPEN_LONG', payload: { size, leverage } });
+  }, []);
+
+  const openShort = useCallback((size: number, leverage: number = 1) => {
+    dispatch({ type: 'OPEN_SHORT', payload: { size, leverage } });
+  }, []);
+
+  const closePositionByIdCallback = useCallback((positionId: string) => {
+    dispatch({ type: 'CLOSE_POSITION_BY_ID', payload: { positionId } });
+  }, []);
+
+  const closeAllPositionsCallback = useCallback(() => {
+    dispatch({ type: 'CLOSE_ALL_POSITIONS' });
+  }, []);
+
   const setViewMode = useCallback((mode: ViewMode) => {
     dispatch({ type: 'SET_VIEW_MODE', payload: mode });
   }, []);
@@ -818,6 +1272,11 @@ export function AppStateProvider({
     updatePosition,
     openPosition,
     closePosition,
+    // New multi-position trading controls
+    openLong,
+    openShort,
+    closePositionById: closePositionByIdCallback,
+    closeAllPositions: closeAllPositionsCallback,
     setViewMode,
     cycleViewMode,
     setGameState,
