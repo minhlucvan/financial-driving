@@ -15,12 +15,12 @@
  * - Adapts to different aspect ratios
  */
 
-// View modes
+// View modes - VERTICAL LAYOUT (Chart on TOP, Drive view BELOW)
 const VIEW_MODES = {
-    SPLIT: { name: 'Split View', chartRatio: 0.25, key: 'split' },
-    CHART_FOCUS: { name: 'Chart Focus', chartRatio: 0.4, key: 'chart' },
-    DRIVE_FOCUS: { name: 'Drive Focus', chartRatio: 0.12, key: 'drive' },
-    FULL_IMMERSION: { name: 'Full Immersion', chartRatio: 0, key: 'immersion' }
+    SPLIT: { name: 'Split', chartRatio: 0.28, key: 'split' },           // 28% top for chart
+    CHART_FOCUS: { name: 'Chart', chartRatio: 0.45, key: 'chart' },     // 45% top for chart
+    DRIVE_FOCUS: { name: 'Drive', chartRatio: 0.15, key: 'drive' },     // 15% mini chart
+    FULL_IMMERSION: { name: 'Immerse', chartRatio: 0, key: 'immersion' } // No chart
 };
 
 class DualViewHUD {
@@ -76,6 +76,7 @@ class DualViewHUD {
 
     /**
      * Calculate responsive layout dimensions
+     * VERTICAL LAYOUT: Chart on TOP, Drive view on BOTTOM
      */
     calculateLayout() {
         const sw = screen_width;
@@ -84,22 +85,26 @@ class DualViewHUD {
         // Base scale factor for fonts and elements
         const scaleFactor = Math.min(sw / 1536, sh / 864);
 
+        // Chart height based on view mode ratio
+        const chartRatio = this.currentMode?.chartRatio || 0.25;
+        const chartHeight = sh * chartRatio;
+
         return {
-            // Chart panel (top-right, avoiding existing HUDs)
+            // Chart panel (FULL WIDTH at TOP)
             chart: {
-                x: sw * 0.55,              // Start at 55% from left
-                y: sh * 0.02,              // 2% from top
-                width: sw * 0.43,          // 43% of screen width
-                height: sh * 0.22,         // 22% of screen height
-                padding: sw * 0.01
+                x: sw * 0.01,              // 1% from left edge
+                y: sh * 0.01,              // 1% from top
+                width: sw * 0.98,          // 98% of screen width (full width)
+                height: chartHeight,        // Height based on view mode
+                padding: sw * 0.008
             },
 
-            // Trading panel (right side, below chart)
+            // Trading panel (compact, top-right corner inside chart)
             trading: {
-                x: sw * 0.82,              // 82% from left
-                y: sh * 0.26,              // Below chart
-                width: sw * 0.16,          // 16% of screen width
-                height: sh * 0.35          // 35% of screen height
+                x: sw * 0.84,              // Right side
+                y: sh * 0.01 + 5,          // Same as chart top
+                width: sw * 0.14,          // 14% of screen width
+                height: Math.min(sh * 0.22, chartHeight - 10)  // Fit within chart area
             },
 
             // Font sizes (scaled)
@@ -112,13 +117,16 @@ class DualViewHUD {
                 xlarge: Math.max(14, Math.floor(20 * scaleFactor))
             },
 
-            // Element sizes
-            candleWidth: Math.max(4, Math.floor(6 * scaleFactor)),
-            candleSpacing: Math.max(1, Math.floor(2 * scaleFactor)),
-            maxCandles: Math.floor(sw * 0.035),  // ~50-60 candles
+            // Element sizes - more candles for full width
+            candleWidth: Math.max(3, Math.floor(5 * scaleFactor)),
+            candleSpacing: Math.max(1, Math.floor(1.5 * scaleFactor)),
+            maxCandles: Math.floor(sw * 0.06),  // ~90-100 candles for full width
 
             // Scale factor for other elements
-            scale: scaleFactor
+            scale: scaleFactor,
+
+            // Chart area boundaries (for drive view to know where chart ends)
+            chartBottom: sh * 0.01 + chartHeight
         };
     }
 
@@ -148,30 +156,32 @@ class DualViewHUD {
 
         this.drawChartBackground();
 
+        // Header bar with info (left side)
         // Title
-        this.chartView.title = this.scene.add.text(c.x + c.padding, c.y + c.padding, 'CHART', {
+        this.chartView.title = this.scene.add.text(c.x + c.padding * 2, c.y + c.padding, 'CHART', {
             fontFamily: 'monospace',
             fontSize: l.fonts.small + 'px',
             color: '#4488ff'
         }).setScrollFactor(0).setDepth(901);
 
-        // Symbol and price
-        this.chartView.symbolText = this.scene.add.text(c.x + c.width * 0.15, c.y + c.padding, 'SPY', {
+        // Symbol
+        this.chartView.symbolText = this.scene.add.text(c.x + c.padding * 8, c.y + c.padding, 'SPY', {
             fontFamily: 'monospace',
             fontSize: l.fonts.small + 'px',
             color: '#ffffff'
         }).setScrollFactor(0).setDepth(901);
 
-        this.chartView.priceText = this.scene.add.text(c.x + c.width - c.padding * 8, c.y + c.padding, '$0.00', {
+        // Price (center-left)
+        this.chartView.priceText = this.scene.add.text(c.x + c.padding * 16, c.y + c.padding, '$0.00', {
             fontFamily: 'monospace',
             fontSize: l.fonts.small + 'px',
             color: '#44ff44'
         }).setScrollFactor(0).setDepth(901);
 
-        // Return display
-        this.chartView.returnText = this.scene.add.text(c.x + c.width * 0.5, c.y + c.padding, '0%', {
+        // Return display (center)
+        this.chartView.returnText = this.scene.add.text(c.x + c.width * 0.25, c.y + c.padding, '0%', {
             fontFamily: 'monospace',
-            fontSize: l.fonts.normal + 'px',
+            fontSize: l.fonts.medium + 'px',
             fontStyle: 'bold',
             color: '#ffffff'
         }).setScrollFactor(0).setDepth(901);
@@ -252,10 +262,11 @@ class DualViewHUD {
         const l = this.layout;
         const c = l.chart;
 
+        // Full width chart area (leave space for trading panel on right)
         const chartX = c.x + c.padding * 2;
-        const chartY = c.y + c.height * 0.15;  // Leave room for header
-        const chartWidth = c.width - c.padding * 6;
-        const chartHeight = c.height * 0.75;
+        const chartY = c.y + c.height * 0.12;  // Leave room for header
+        const chartWidth = c.width * 0.82 - c.padding * 4;  // Leave room for trading panel
+        const chartHeight = c.height * 0.82;
 
         const candleWidth = l.candleWidth;
         const candleSpacing = l.candleSpacing;
@@ -411,113 +422,81 @@ class DualViewHUD {
         const l = this.layout;
         const t = l.trading;
 
-        // Background
+        // Background - compact overlay panel
         this.tradingPanel.background = this.scene.add.graphics();
-        this.tradingPanel.background.setScrollFactor(0).setDepth(900);
+        this.tradingPanel.background.setScrollFactor(0).setDepth(910);
 
-        this.tradingPanel.background.fillStyle(0x0a0a14, 0.9);
-        this.tradingPanel.background.fillRoundedRect(t.x, t.y, t.width, t.height, 6);
+        this.tradingPanel.background.fillStyle(0x0a0a14, 0.92);
+        this.tradingPanel.background.fillRoundedRect(t.x, t.y, t.width, t.height, 5);
 
-        this.tradingPanel.background.lineStyle(1, 0x44ff44, 0.4);
-        this.tradingPanel.background.strokeRoundedRect(t.x, t.y, t.width, t.height, 6);
+        this.tradingPanel.background.lineStyle(1, 0x44ff44, 0.5);
+        this.tradingPanel.background.strokeRoundedRect(t.x, t.y, t.width, t.height, 5);
 
-        const padding = t.width * 0.06;
-        const lineHeight = t.height * 0.08;
+        const padding = t.width * 0.08;
+        const lineHeight = l.fonts.normal * 1.6;
         let yPos = t.y + padding;
 
-        // Title
-        this.scene.add.text(t.x + padding, yPos, 'TRADING', {
-            fontFamily: 'monospace',
-            fontSize: l.fonts.small + 'px',
-            color: '#44ff44'
-        }).setScrollFactor(0).setDepth(901);
-
-        yPos += lineHeight * 1.2;
-
-        // Position display
+        // Title row with position
         this.tradingPanel.positionText = this.scene.add.text(t.x + padding, yPos, 'No Position', {
             fontFamily: 'monospace',
             fontSize: l.fonts.normal + 'px',
             color: '#888888'
-        }).setScrollFactor(0).setDepth(901);
+        }).setScrollFactor(0).setDepth(911);
 
         yPos += lineHeight;
 
-        // P&L display
-        this.tradingPanel.pnlText = this.scene.add.text(t.x + padding, yPos, 'P&L: $0', {
+        // P&L display (main)
+        this.tradingPanel.pnlText = this.scene.add.text(t.x + padding, yPos, 'P&L: 0%', {
             fontFamily: 'monospace',
             fontSize: l.fonts.medium + 'px',
             fontStyle: 'bold',
             color: '#ffffff'
-        }).setScrollFactor(0).setDepth(901);
+        }).setScrollFactor(0).setDepth(911);
 
-        yPos += lineHeight * 1.1;
+        yPos += lineHeight;
 
         // Unrealized P&L
-        this.tradingPanel.unrealizedText = this.scene.add.text(t.x + padding, yPos, 'Unreal: --', {
+        this.tradingPanel.unrealizedText = this.scene.add.text(t.x + padding, yPos, 'Open: --', {
             fontFamily: 'monospace',
             fontSize: l.fonts.small + 'px',
             color: '#888888'
-        }).setScrollFactor(0).setDepth(901);
+        }).setScrollFactor(0).setDepth(911);
 
-        yPos += lineHeight;
+        yPos += lineHeight * 0.9;
 
-        // Orders count
+        // Orders and combo on same conceptual area
         this.tradingPanel.ordersText = this.scene.add.text(t.x + padding, yPos, 'Orders: 0', {
             fontFamily: 'monospace',
-            fontSize: l.fonts.small + 'px',
+            fontSize: l.fonts.tiny + 'px',
             color: '#aaaaaa'
-        }).setScrollFactor(0).setDepth(901);
+        }).setScrollFactor(0).setDepth(911);
 
-        yPos += lineHeight;
+        yPos += lineHeight * 0.8;
 
-        // Combo display
+        // Combo/Streak
         this.tradingPanel.comboText = this.scene.add.text(t.x + padding, yPos, 'Streak: 0', {
             fontFamily: 'monospace',
-            fontSize: l.fonts.small + 'px',
+            fontSize: l.fonts.tiny + 'px',
             color: '#ffcc00'
-        }).setScrollFactor(0).setDepth(901);
+        }).setScrollFactor(0).setDepth(911);
 
-        yPos += lineHeight;
+        yPos += lineHeight * 0.8;
 
         // Win rate
         this.tradingPanel.winRateText = this.scene.add.text(t.x + padding, yPos, 'Win: 0%', {
             fontFamily: 'monospace',
-            fontSize: l.fonts.small + 'px',
+            fontSize: l.fonts.tiny + 'px',
             color: '#888888'
-        }).setScrollFactor(0).setDepth(901);
+        }).setScrollFactor(0).setDepth(911);
 
-        yPos += lineHeight * 1.2;
+        yPos += lineHeight * 0.9;
 
-        // Divider
-        this.tradingPanel.background.lineStyle(1, 0x444466, 0.5);
-        this.tradingPanel.background.lineBetween(t.x + padding, yPos, t.x + t.width - padding, yPos);
-
-        yPos += lineHeight * 0.5;
-
-        // Quick action hints
-        this.scene.add.text(t.x + padding, yPos, 'B:Buy X:Sell', {
-            fontFamily: 'monospace',
-            fontSize: l.fonts.tiny + 'px',
-            color: '#44ff88'
-        }).setScrollFactor(0).setDepth(901);
-
-        yPos += lineHeight * 0.8;
-
-        this.scene.add.text(t.x + padding, yPos, 'P:TP O:SL', {
-            fontFamily: 'monospace',
-            fontSize: l.fonts.tiny + 'px',
-            color: '#ffaa44'
-        }).setScrollFactor(0).setDepth(901);
-
-        yPos += lineHeight * 0.8;
-
-        // View mode indicator
+        // View mode at bottom
         this.tradingPanel.viewModeText = this.scene.add.text(t.x + padding, yPos, '[C] Split', {
             fontFamily: 'monospace',
             fontSize: l.fonts.tiny + 'px',
-            color: '#666666'
-        }).setScrollFactor(0).setDepth(901);
+            color: '#4488ff'
+        }).setScrollFactor(0).setDepth(911);
     }
 
     /**
@@ -708,30 +687,27 @@ class DualViewHUD {
 
     /**
      * Set the current view mode
+     * Adjusts chart height - chart on TOP, drive view below
      */
     setViewMode(mode) {
         this.currentMode = mode;
 
-        // Recalculate layout for new mode
+        // Recalculate layout for new mode (layout uses currentMode.chartRatio)
         this.layout = this.calculateLayout();
 
-        // Adjust chart scaling based on mode
-        const chartScale = mode.chartRatio / 0.25;  // Relative to split mode
-
         if (mode === VIEW_MODES.FULL_IMMERSION) {
-            // Hide all HUD elements
+            // Hide all HUD elements - pure driving
             this.setChartVisibility(false);
             this.setTradingPanelVisibility(false);
         } else {
             this.setChartVisibility(true);
             this.setTradingPanelVisibility(true);
 
-            // Redraw backgrounds with new sizes
-            this.layout.chart.height = screen_height * 0.22 * chartScale;
+            // Redraw chart background with new height
             this.drawChartBackground();
         }
 
-        console.log(`View mode: ${mode.name}`);
+        console.log(`View mode: ${mode.name} (chart height: ${(mode.chartRatio * 100).toFixed(0)}%)`);
     }
 
     setChartVisibility(visible) {
