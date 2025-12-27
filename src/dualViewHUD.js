@@ -101,10 +101,10 @@ class DualViewHUD {
 
             // Trading panel (compact, top-right corner inside chart)
             trading: {
-                x: sw * 0.84,              // Right side
+                x: sw * 0.83,              // Right side
                 y: sh * 0.01 + 5,          // Same as chart top
-                width: sw * 0.14,          // 14% of screen width
-                height: Math.min(sh * 0.22, chartHeight - 10)  // Fit within chart area
+                width: sw * 0.155,         // 15.5% of screen width (wider for buttons)
+                height: Math.max(sh * 0.26, chartHeight - 10)  // Taller for button rows
             },
 
             // Font sizes (scaled)
@@ -422,6 +422,9 @@ class DualViewHUD {
         const l = this.layout;
         const t = l.trading;
 
+        // Store buttons for visibility control
+        this.tradingPanel.buttons = [];
+
         // Background - compact overlay panel
         this.tradingPanel.background = this.scene.add.graphics();
         this.tradingPanel.background.setScrollFactor(0).setDepth(910);
@@ -432,11 +435,11 @@ class DualViewHUD {
         this.tradingPanel.background.lineStyle(1, 0x44ff44, 0.5);
         this.tradingPanel.background.strokeRoundedRect(t.x, t.y, t.width, t.height, 5);
 
-        const padding = t.width * 0.08;
-        const lineHeight = l.fonts.normal * 1.6;
+        const padding = t.width * 0.06;
+        const lineHeight = l.fonts.normal * 1.4;
         let yPos = t.y + padding;
 
-        // Title row with position
+        // Position display
         this.tradingPanel.positionText = this.scene.add.text(t.x + padding, yPos, 'No Position', {
             fontFamily: 'monospace',
             fontSize: l.fonts.normal + 'px',
@@ -445,7 +448,7 @@ class DualViewHUD {
 
         yPos += lineHeight;
 
-        // P&L display (main)
+        // P&L display
         this.tradingPanel.pnlText = this.scene.add.text(t.x + padding, yPos, 'P&L: 0%', {
             fontFamily: 'monospace',
             fontSize: l.fonts.medium + 'px',
@@ -462,41 +465,160 @@ class DualViewHUD {
             color: '#888888'
         }).setScrollFactor(0).setDepth(911);
 
-        yPos += lineHeight * 0.9;
+        yPos += lineHeight * 1.1;
 
-        // Orders and combo on same conceptual area
+        // === TRADING BUTTONS (Touch/Click friendly) ===
+        const btnWidth = (t.width - padding * 3) / 2;
+        const btnHeight = Math.max(28, l.fonts.normal * 2.2);
+        const btnSpacing = padding * 0.5;
+
+        // Row 1: BUY / SELL buttons
+        this.createButton(t.x + padding, yPos, btnWidth, btnHeight, 'BUY', 0x22aa44, () => {
+            if (gameState !== 'playing') return;
+            if (tradingTerminal && !tradingTerminal.position.isOpen) {
+                tradingTerminal.marketBuy();
+            }
+        });
+
+        this.createButton(t.x + padding + btnWidth + btnSpacing, yPos, btnWidth, btnHeight, 'SELL', 0xcc3333, () => {
+            if (gameState !== 'playing') return;
+            if (tradingTerminal && tradingTerminal.position.isOpen) {
+                tradingTerminal.marketSell();
+            }
+        });
+
+        yPos += btnHeight + btnSpacing;
+
+        // Row 2: SL / TP buttons
+        this.createButton(t.x + padding, yPos, btnWidth, btnHeight, 'SL', 0xcc6622, () => {
+            if (gameState !== 'playing') return;
+            if (tradingTerminal && tradingTerminal.position.isOpen) {
+                const currentReturn = tradingTerminal.getCurrentReturn();
+                tradingTerminal.stopLoss(currentReturn - 3);
+            }
+        });
+
+        this.createButton(t.x + padding + btnWidth + btnSpacing, yPos, btnWidth, btnHeight, 'TP', 0x22aacc, () => {
+            if (gameState !== 'playing') return;
+            if (tradingTerminal && tradingTerminal.position.isOpen) {
+                const currentReturn = tradingTerminal.getCurrentReturn();
+                tradingTerminal.takeProfit(currentReturn + 5);
+            }
+        });
+
+        yPos += btnHeight + btnSpacing;
+
+        // Row 3: LIMIT / CANCEL buttons
+        this.createButton(t.x + padding, yPos, btnWidth, btnHeight, 'LIMIT', 0x6644aa, () => {
+            if (gameState !== 'playing') return;
+            if (tradingTerminal) {
+                const currentReturn = tradingTerminal.getCurrentReturn();
+                tradingTerminal.limitBuy(currentReturn - 2);
+            }
+        });
+
+        this.createButton(t.x + padding + btnWidth + btnSpacing, yPos, btnWidth, btnHeight, 'X', 0x666666, () => {
+            if (gameState !== 'playing') return;
+            if (tradingTerminal) {
+                tradingTerminal.cancelAllOrders();
+            }
+        });
+
+        yPos += btnHeight + lineHeight * 0.5;
+
+        // Stats row (compact)
         this.tradingPanel.ordersText = this.scene.add.text(t.x + padding, yPos, 'Orders: 0', {
             fontFamily: 'monospace',
             fontSize: l.fonts.tiny + 'px',
             color: '#aaaaaa'
         }).setScrollFactor(0).setDepth(911);
 
-        yPos += lineHeight * 0.8;
-
-        // Combo/Streak
-        this.tradingPanel.comboText = this.scene.add.text(t.x + padding, yPos, 'Streak: 0', {
+        this.tradingPanel.comboText = this.scene.add.text(t.x + t.width * 0.5, yPos, 'x0', {
             fontFamily: 'monospace',
             fontSize: l.fonts.tiny + 'px',
             color: '#ffcc00'
         }).setScrollFactor(0).setDepth(911);
 
-        yPos += lineHeight * 0.8;
+        yPos += lineHeight * 0.7;
 
-        // Win rate
+        // Win rate and view mode
         this.tradingPanel.winRateText = this.scene.add.text(t.x + padding, yPos, 'Win: 0%', {
             fontFamily: 'monospace',
             fontSize: l.fonts.tiny + 'px',
             color: '#888888'
         }).setScrollFactor(0).setDepth(911);
 
-        yPos += lineHeight * 0.9;
+        // View mode button (clickable)
+        this.createButton(t.x + t.width * 0.55, yPos - 2, t.width * 0.4, btnHeight * 0.7, 'VIEW', 0x334455, () => {
+            this.cycleViewMode();
+        });
 
-        // View mode at bottom
-        this.tradingPanel.viewModeText = this.scene.add.text(t.x + padding, yPos, '[C] Split', {
+        this.tradingPanel.viewModeText = null;  // Replaced by button
+    }
+
+    /**
+     * Create a clickable/touchable button
+     */
+    createButton(x, y, width, height, text, color, callback) {
+        const l = this.layout;
+
+        // Button background
+        const bg = this.scene.add.graphics();
+        bg.setScrollFactor(0).setDepth(912);
+
+        // Draw button
+        const drawButton = (isHover = false, isPressed = false) => {
+            bg.clear();
+            const alpha = isPressed ? 1 : (isHover ? 0.9 : 0.75);
+            const brighten = isPressed ? 0x111111 : (isHover ? 0x222222 : 0);
+
+            bg.fillStyle(color + brighten, alpha);
+            bg.fillRoundedRect(x, y, width, height, 4);
+
+            if (isHover) {
+                bg.lineStyle(1, 0xffffff, 0.5);
+                bg.strokeRoundedRect(x, y, width, height, 4);
+            }
+        };
+
+        drawButton();
+
+        // Button text
+        const label = this.scene.add.text(x + width / 2, y + height / 2, text, {
             fontFamily: 'monospace',
-            fontSize: l.fonts.tiny + 'px',
-            color: '#4488ff'
-        }).setScrollFactor(0).setDepth(911);
+            fontSize: l.fonts.small + 'px',
+            fontStyle: 'bold',
+            color: '#ffffff'
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(913);
+
+        // Hit area for interaction
+        const hitArea = this.scene.add.rectangle(x + width / 2, y + height / 2, width, height);
+        hitArea.setScrollFactor(0).setDepth(914);
+        hitArea.setInteractive({ useHandCursor: true });
+        hitArea.setAlpha(0.001);  // Invisible but interactive
+
+        // Pointer events
+        hitArea.on('pointerover', () => {
+            drawButton(true, false);
+        });
+
+        hitArea.on('pointerout', () => {
+            drawButton(false, false);
+        });
+
+        hitArea.on('pointerdown', () => {
+            drawButton(true, true);
+        });
+
+        hitArea.on('pointerup', () => {
+            drawButton(true, false);
+            if (callback) callback();
+        });
+
+        // Store for cleanup and visibility
+        this.tradingPanel.buttons.push({ bg, label, hitArea });
+
+        return { bg, label, hitArea };
     }
 
     /**
@@ -553,9 +675,6 @@ class DualViewHUD {
 
         // Win rate
         this.tradingPanel.winRateText.setText(`Win: ${stats.winRate.toFixed(0)}%`);
-
-        // View mode
-        this.tradingPanel.viewModeText.setText(`[C] ${this.currentMode.name.split(' ')[0]}`);
     }
 
     // ========================================
@@ -731,6 +850,20 @@ class DualViewHUD {
         this.tradingPanel.comboText?.setVisible(visible);
         this.tradingPanel.winRateText?.setVisible(visible);
         this.tradingPanel.viewModeText?.setVisible(visible);
+
+        // Handle buttons visibility
+        if (this.tradingPanel.buttons) {
+            for (const btn of this.tradingPanel.buttons) {
+                btn.bg?.setVisible(visible);
+                btn.label?.setVisible(visible);
+                btn.hitArea?.setVisible(visible);
+                if (visible) {
+                    btn.hitArea?.setInteractive({ useHandCursor: true });
+                } else {
+                    btn.hitArea?.disableInteractive();
+                }
+            }
+        }
     }
 
     /**
