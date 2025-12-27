@@ -285,41 +285,92 @@ function cycleMarketDataset(scene) {
 }
 
 /**
- * Create HUD overlay for market information
+ * Create HUD overlay for market information and indicators
  */
 function createMarketHUD(scene) {
-    // Create HUD container (fixed to camera)
-    marketHUD = {
-        dataset: null,
-        regime: null,
-        container: null
+    const textStyle = {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#ffffff',
+        backgroundColor: '#000000aa',
+        padding: { x: 6, y: 3 }
     };
 
-    // Dataset name indicator
+    const headerStyle = {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#00ff00',
+        backgroundColor: '#000000cc',
+        padding: { x: 8, y: 4 }
+    };
+
+    // Create HUD container
+    marketHUD = {
+        // Top left - Dataset info
+        dataset: null,
+        regime: null,
+
+        // Right side - Indicator panels
+        volatility: { header: null, content: null },
+        momentum: { header: null, content: null },
+        value: { header: null, content: null }
+    };
+
+    // === TOP LEFT: Dataset and Regime ===
     const datasetInfo = marketDataLoader.getDatasetInfo(currentMarketDataKey);
     const infoText = datasetInfo ? datasetInfo.name + ' (' + datasetInfo.symbol + ')' : 'Loading...';
+
     marketHUD.dataset = scene.add.text(16, 16, infoText, {
         fontFamily: 'monospace',
-        fontSize: '18px',
+        fontSize: '16px',
         color: '#00ff00',
         backgroundColor: '#000000aa',
         padding: { x: 8, y: 4 }
     }).setScrollFactor(0).setDepth(1000);
 
-    // Market regime indicator
-    marketHUD.regime = scene.add.text(16, 52, 'Regime: --', {
+    marketHUD.regime = scene.add.text(16, 48, 'Regime: -- | Date: --', {
         fontFamily: 'monospace',
-        fontSize: '14px',
+        fontSize: '13px',
         color: '#ffff00',
         backgroundColor: '#000000aa',
         padding: { x: 8, y: 4 }
     }).setScrollFactor(0).setDepth(1000);
 
-    // Controls hint
+    // === RIGHT SIDE: Indicator Panels ===
+    const panelX = screen_width - 180;
+    let panelY = 16;
+    const panelSpacing = 90;
+
+    // Volatility Panel
+    marketHUD.volatility.header = scene.add.text(panelX, panelY, 'VOLATILITY', headerStyle)
+        .setScrollFactor(0).setDepth(1000);
+    marketHUD.volatility.content = scene.add.text(panelX, panelY + 22,
+        'ATR:  --\nVol:  --\nVIX:  --', textStyle)
+        .setScrollFactor(0).setDepth(1000);
+
+    panelY += panelSpacing;
+
+    // Momentum Panel
+    marketHUD.momentum.header = scene.add.text(panelX, panelY, 'MOMENTUM', headerStyle)
+        .setScrollFactor(0).setDepth(1000);
+    marketHUD.momentum.content = scene.add.text(panelX, panelY + 22,
+        'RSI:   --\nTrend: --\nROC:   --', textStyle)
+        .setScrollFactor(0).setDepth(1000);
+
+    panelY += panelSpacing;
+
+    // Value Panel
+    marketHUD.value.header = scene.add.text(panelX, panelY, 'VALUE', headerStyle)
+        .setScrollFactor(0).setDepth(1000);
+    marketHUD.value.content = scene.add.text(panelX, panelY + 22,
+        'DD:    --\nDist:  --\nZ:     --', textStyle)
+        .setScrollFactor(0).setDepth(1000);
+
+    // Controls hint (bottom left)
     scene.add.text(16, screen_height - 40, 'N: Next Dataset | F: Fullscreen | Arrows: Drive', {
         fontFamily: 'monospace',
-        fontSize: '12px',
-        color: '#aaaaaa',
+        fontSize: '11px',
+        color: '#888888',
         backgroundColor: '#000000aa',
         padding: { x: 8, y: 4 }
     }).setScrollFactor(0).setDepth(1000);
@@ -332,46 +383,90 @@ function updateHUDDataset(datasetKey, datasetInfo) {
     if (marketHUD && marketHUD.dataset && datasetInfo) {
         marketHUD.dataset.setText(datasetInfo.name + ' (' + datasetInfo.symbol + ')');
     }
+    // Reset indicators when dataset changes
+    if (marketIndicators) {
+        marketIndicators.reset();
+    }
 }
 
 /**
- * Update HUD with current market regime
+ * Update HUD with current market data and indicators
  */
 function updateHUDRegime() {
-    if (!marketHUD || !marketHUD.regime || !NoiseGenerator.isReady()) {
+    if (!marketHUD || !NoiseGenerator.isReady()) {
         return;
     }
 
     const metadata = marketTerrainGenerator.getTerrainMetadata();
 
-    let regimeText = 'Regime: ' + metadata.regime;
-    let regimeColor = '#ffffff';
-
-    switch (metadata.regime) {
-        case 'BULL':
-            regimeColor = '#4CAF50'; // Green
-            break;
-        case 'BEAR':
-            regimeColor = '#F44336'; // Red
-            break;
-        case 'CRASH':
-            regimeColor = '#9C27B0'; // Purple
-            break;
-        case 'CHOP':
-            regimeColor = '#FFC107'; // Yellow
-            break;
+    // Update indicators with current candle data
+    if (metadata && marketIndicators) {
+        const currentCandle = marketTerrainGenerator.marketData ?
+            marketTerrainGenerator.marketData.data[marketTerrainGenerator.currentIndex - 1] : null;
+        if (currentCandle) {
+            marketIndicators.update(currentCandle);
+        }
     }
 
-    if (metadata.date) {
-        regimeText += ' | ' + metadata.date;
-    }
-    if (metadata.dailyReturn !== undefined) {
-        const returnStr = metadata.dailyReturn >= 0 ? '+' : '';
-        regimeText += ' | ' + returnStr + metadata.dailyReturn.toFixed(2) + '%';
+    // === Update Regime Display ===
+    if (marketHUD.regime) {
+        let regimeText = 'Regime: ' + (metadata.regime || '--');
+        let regimeColor = '#ffffff';
+
+        switch (metadata.regime) {
+            case 'BULL': regimeColor = '#4CAF50'; break;
+            case 'BEAR': regimeColor = '#F44336'; break;
+            case 'CRASH': regimeColor = '#9C27B0'; break;
+            case 'CHOP': regimeColor = '#FFC107'; break;
+        }
+
+        if (metadata.date) {
+            regimeText += ' | ' + metadata.date;
+        }
+        if (metadata.dailyReturn !== undefined) {
+            const returnStr = metadata.dailyReturn >= 0 ? '+' : '';
+            regimeText += ' | ' + returnStr + metadata.dailyReturn.toFixed(2) + '%';
+        }
+
+        marketHUD.regime.setText(regimeText);
+        marketHUD.regime.setColor(regimeColor);
     }
 
-    marketHUD.regime.setText(regimeText);
-    marketHUD.regime.setColor(regimeColor);
+    // === Update Indicator Panels ===
+    const data = marketIndicators.getDisplayData();
+
+    // Volatility Panel
+    if (marketHUD.volatility.content) {
+        marketHUD.volatility.content.setText(
+            'ATR:  ' + data.volatility.atr + '\n' +
+            'Vol:  ' + data.volatility.vol + '\n' +
+            'VIX:  ' + data.volatility.vix
+        );
+        marketHUD.volatility.header.setColor(data.volatility.color);
+        marketHUD.volatility.header.setText('VOLATILITY [' + data.volatility.label + ']');
+    }
+
+    // Momentum Panel
+    if (marketHUD.momentum.content) {
+        marketHUD.momentum.content.setText(
+            'RSI:   ' + data.momentum.rsi + '\n' +
+            'Trend: ' + data.momentum.trend + '\n' +
+            'ROC:   ' + data.momentum.roc
+        );
+        marketHUD.momentum.header.setColor(data.momentum.color);
+        marketHUD.momentum.header.setText('MOMENTUM [' + data.momentum.label + ']');
+    }
+
+    // Value Panel
+    if (marketHUD.value.content) {
+        marketHUD.value.content.setText(
+            'DD:    ' + data.value.drawdown + '\n' +
+            'Dist:  ' + data.value.distMA + '\n' +
+            'Z:     ' + data.value.zScore
+        );
+        marketHUD.value.header.setColor(data.value.color);
+        marketHUD.value.header.setText('VALUE [' + data.value.label + ']');
+    }
 }
 
 function update()
