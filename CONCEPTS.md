@@ -309,25 +309,128 @@ TradingView Chart → Screen Capture → OCR/Pattern Recognition
 
 ---
 
-### 📝 Order Types & Mechanics
+### 🎨 Draw-to-Trade: Visual Order Placement
 
-**Available Order Types:**
+**No Forms. No Menus. Just Draw.**
 
-| Order Type | Game Effect | Learning Objective |
-|------------|-------------|-------------------|
-| **Market Buy** | Instant engine boost | Immediate execution, slippage risk |
-| **Market Sell** | Reduce engine power | Exit positions quickly |
-| **Limit Buy** | Scheduled boost at price level | Patience, price targeting |
-| **Limit Sell** | Auto-sell at target | Taking profits |
-| **Stop Loss** | Auto-brake trigger | Risk management |
-| **Take Profit** | Auto-coast at gains | Locking in wins |
-| **Trailing Stop** | Dynamic brake adjustment | Riding trends safely |
+The Trading Terminal is fully **playable** — players draw their trade setups directly on the chart like sketching on a canvas. This transforms order placement from boring form-filling into an intuitive, game-like experience.
 
-**Order Placement UI:**
-- Press **T** to open Trading Terminal overlay
-- Quick-order buttons on HUD for fast execution
-- Order book visualization shows pending orders
-- Drag-and-drop stop/limit levels on price ladder
+---
+
+#### ✏️ Drawing Tools
+
+| Tool | Gesture | What It Creates |
+|------|---------|-----------------|
+| **Entry Line** | Draw horizontal line | Limit order at that price |
+| **Entry Arrow** | Draw arrow pointing up/down | Market order (up=buy, down=sell) |
+| **Stop Zone** | Draw red rectangle below entry | Stop loss zone |
+| **Target Zone** | Draw green rectangle above entry | Take profit zone |
+| **Trail Path** | Draw wavy line following price | Trailing stop path |
+| **Position Box** | Draw box around candles | Define entry zone range |
+| **Risk Triangle** | Connect entry, stop, target | Visualize R:R ratio |
+
+**Drawing Mechanics:**
+```
+┌─────────────────────────────────────────┐
+│                    🎯 TP [$115]         │  ← Green zone (draw rectangle)
+│               ┌────────────┐            │
+│               │  +15% ✓    │            │
+│               └────────────┘            │
+│  ════════════════════════════════════   │  ← Entry line (draw horizontal)
+│              📍 ENTRY [$100]            │
+│                    │                    │
+│               ┌────┴───────┐            │
+│               │  -5% ✗     │            │  ← Red zone (draw rectangle)
+│               └────────────┘            │
+│                    🛑 SL [$95]          │
+└─────────────────────────────────────────┘
+```
+
+---
+
+#### 🎮 Gesture Controls
+
+**Mouse/Touch Gestures:**
+| Gesture | Action |
+|---------|--------|
+| **Click + Drag horizontal** | Draw entry/exit level |
+| **Click + Drag vertical** | Adjust position size (wider = bigger) |
+| **Swipe up on price** | Quick market buy |
+| **Swipe down on price** | Quick market sell |
+| **Pinch zones** | Tighten stop loss / take profit |
+| **Spread zones** | Widen stop loss / take profit |
+| **Double-tap order** | Cancel/modify |
+| **Long press + drag** | Move existing order |
+| **Draw X over order** | Cancel order |
+
+**Keyboard + Draw Combos:**
+| Key + Draw | Effect |
+|------------|--------|
+| Hold **Shift** + draw | Snap to support/resistance |
+| Hold **Ctrl** + draw | Draw on multiple timeframes |
+| Hold **Alt** + draw | Mirror order (hedge) |
+
+---
+
+#### 🎯 Visual Order Types
+
+**1. Sniper Entry (Limit Order)**
+- Draw a thin horizontal line at desired price
+- Line glows when price approaches
+- Pulses green when filled
+
+**2. Cannon Shot (Market Order)**
+- Draw arrow pointing into the chart
+- Instant execution with explosion effect
+- Arrow size = position size
+
+**3. Safety Net (Stop Loss)**
+- Draw red zone below your entry
+- Net catches your car if it falls
+- Stretchy animation shows buffer
+
+**4. Treasure Chest (Take Profit)**
+- Draw green zone above your entry
+- Chest opens with coins when hit
+- Sparkle effect on profit capture
+
+**5. Shadow Trail (Trailing Stop)**
+- Draw a path that follows the car
+- Shadow follows at fixed distance
+- Fades if car reverses too fast
+
+**6. Bracket Trap (OCO Order)**
+- Draw both stop and target zones
+- Forms a bracket around position
+- First zone hit cancels the other
+
+---
+
+#### 🏎 Orders Become Road Elements
+
+Your drawn orders materialize as **physical objects on the road**:
+
+| Order Type | Road Element | Interaction |
+|------------|-------------|-------------|
+| **Limit Buy** | Boost pad (appears at price level) | Car hits it → position opens |
+| **Stop Loss** | Safety barrier | Catches falling car, limits damage |
+| **Take Profit** | Finish flag / Checkpoint | Triggers celebration, banks gains |
+| **Trailing Stop** | Moving barrier behind car | Follows at distance, stops if reversed |
+| **Pending Order** | Glowing marker on road | Visible obstacle/opportunity ahead |
+
+**Visual Example:**
+```
+Road View:
+                    🏁 [TP $120]
+                   /
+    ═══════════════════════════════  ← Road (price history)
+         🚗💨                         ← Your car at $105
+    ═══════════════════════════════
+                   \
+                    🛡️ [SL $98]
+
+Your drawings become real track elements!
+```
 
 ---
 
@@ -367,49 +470,68 @@ Available Margin → Brake fluid remaining
 - **Equity curve** rendered as "tire tracks" behind car
 
 **Order Execution Feedback:**
-- **Order placed**: Indicator light blinks
-- **Order filled**: Engine sound change + visual flash
-- **Order rejected**: Warning buzzer + red flash
-- **Partial fill**: Gradual power adjustment
+- **Order placed**: Drawing solidifies with glow
+- **Order filled**: Explosion/boost effect + sound
+- **Order rejected**: Drawing shatters + warning
+- **Partial fill**: Drawing partially fills in
+
+**Draw Feedback Animations:**
+| State | Animation |
+|-------|-----------|
+| Drawing | Sketchy/dotted line following cursor |
+| Pending | Solid line, gentle pulse |
+| Near trigger | Intense glow, vibration |
+| Filled | Burst effect, line becomes road element |
+| Cancelled | Line dissolves/erases |
 
 ---
 
-### 🎮 Trading Terminal Controls
+### 🎮 Gamification Elements
 
-**Keyboard Shortcuts:**
-| Key | Action |
-|-----|--------|
-| T | Toggle Trading Terminal |
-| B | Quick Market Buy |
-| S | Quick Market Sell |
-| L | Place Limit Order |
-| X | Cancel all pending orders |
-| P | Show/hide P&L panel |
-| O | Open order book |
+**Combo System:**
+- Chain successful trades for multiplier
+- "3-Trade Streak!" → Bonus engine power
+- "Perfect Entry!" → Hit limit within 0.1% → XP bonus
 
-**Order Sizing:**
-- Use number keys (1-9) to set position size as % of capital
-- **0** = Close entire position
-- **Shift + number** = Leverage multiplier
+**Drawing Precision Rewards:**
+| Achievement | Requirement | Reward |
+|-------------|-------------|--------|
+| **Sniper** | Entry within 0.5% of drawn level | +10 XP |
+| **Architect** | R:R ratio > 3:1 | +25 XP |
+| **Safety First** | Stop loss saved > 5% | +15 XP |
+| **Patient Hunter** | Limit order waited > 1 hour | +20 XP |
+| **Quick Draw** | Order placed in < 2 seconds | +5 XP |
+
+**Visual Unlocks:**
+- Better drawing tools (glow effects, colors)
+- Custom order markers (skulls, diamonds, etc.)
+- Trail effects for your lines
+- Sound packs for order fills
+
+**Leaderboard Categories:**
+- Most precise entries (lowest slippage)
+- Best R:R ratios drawn
+- Fastest profitable setups
+- Longest winning streaks
 
 ---
 
-### 🧪 Learning Scenarios
+### 🧪 Drawing Practice Mode
 
-**Tutorial Missions for Order Types:**
+**Tutorial Missions:**
 
-1. **"First Trade"** - Place a market buy, watch position open
-2. **"The Stop Loss"** - Set stop loss, survive a mini-crash
-3. **"Limit Order Patience"** - Wait for price, get better entry
-4. **"Trailing the Trend"** - Ride uphill with trailing stop
-5. **"Leverage Trap"** - Experience margin call in safe environment
-6. **"Scale In/Out"** - Partial position management
+1. **"First Stroke"** - Draw your first entry line, watch it fill
+2. **"Safety Sketch"** - Draw a stop loss, survive a dip
+3. **"The Art of Patience"** - Draw limit below market, wait for fill
+4. **"Bracket Master"** - Draw complete setup (entry + SL + TP)
+5. **"Trail Blazer"** - Draw trailing path, ride a trend
+6. **"Speed Sketch"** - Complete 5 setups in 60 seconds
 
 **Skill Challenges:**
-- Execute 10 trades with < 2% slippage
-- Survive a 20% drawdown with proper stops
-- Capture a trend with trailing stop (no manual exit)
-- Close position before margin call triggers
+- Draw 10 setups with R:R > 2:1
+- Get 5 limit orders filled within 1% of drawn price
+- Survive a crash using only drawn stop losses
+- Complete a trend trade using only trailing stop drawing
 
 ---
 
