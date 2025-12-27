@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { getScreenDimensions, globalGameState } from '../config';
-import type { RoadSegment, RoadConditions, MarketRegime, CarPhysics } from '../../types';
+import type { RoadSegment, RoadConditions, MarketRegime, CarPhysics, ChartCandle, MarketIndicators, Position } from '../../types';
 import {
   drawSky,
   drawFog,
@@ -20,6 +20,12 @@ import {
   loadSVGTexture,
   type CarType,
   type CarState,
+  // Chart overlay
+  drawCandlestickChart,
+  drawMarketInfoPanel,
+  drawPortfolioPanel,
+  drawPlaybackControls,
+  drawTradingButtons,
 } from '../vector';
 import {
   REGIME_COLORS,
@@ -43,6 +49,27 @@ export class GameScene extends Phaser.Scene {
   private roadGraphics: Phaser.GameObjects.Graphics | null = null;
   private carGraphics: Phaser.GameObjects.Graphics | null = null;
   private hudGraphics: Phaser.GameObjects.Graphics | null = null;
+
+  // Chart overlay graphics (screen-space, fixed to camera)
+  private chartGraphics: Phaser.GameObjects.Graphics | null = null;
+
+  // HUD Text objects
+  private hudTexts: {
+    wealth?: Phaser.GameObjects.Text;
+    return?: Phaser.GameObjects.Text;
+    regime?: Phaser.GameObjects.Text;
+    barInfo?: Phaser.GameObjects.Text;
+    price?: Phaser.GameObjects.Text;
+    rsi?: Phaser.GameObjects.Text;
+    volatility?: Phaser.GameObjects.Text;
+    drawdown?: Phaser.GameObjects.Text;
+    leverage?: Phaser.GameObjects.Text;
+    cash?: Phaser.GameObjects.Text;
+    equity?: Phaser.GameObjects.Text;
+    pnl?: Phaser.GameObjects.Text;
+    controls?: Phaser.GameObjects.Text;
+    speed?: Phaser.GameObjects.Text;
+  } = {};
 
   // SVG car sprite
   private carSprite: Phaser.GameObjects.Sprite | null = null;
@@ -126,6 +153,32 @@ export class GameScene extends Phaser.Scene {
     hedgeCoverage: 0,
     hedgeRemaining: 0,
     hedgeCooldown: 0,
+
+    // Chart data (for overlay)
+    chartCandles: [] as ChartCandle[],
+    totalBars: 0,
+    currentPrice: 0,
+    currentReturn: 0,
+    currentDate: '',
+    indicators: {
+      rsi: 50,
+      atr: 0,
+      volatility: 0,
+      trend: 0,
+      drawdown: 0,
+      regime: 'CHOP' as MarketRegime,
+    } as MarketIndicators,
+
+    // Portfolio state (for overlay)
+    equity: 10000,
+    cash: 10000,
+    positions: [] as Position[],
+
+    // Playback state
+    isPlaying: false,
+    playbackSpeed: 1,
+    canGoBack: false,
+    canGoForward: true,
   };
 
   constructor() {
@@ -148,6 +201,12 @@ export class GameScene extends Phaser.Scene {
     this.roadGraphics = this.add.graphics();
     this.carGraphics = this.add.graphics();
     this.hudGraphics = this.add.graphics().setScrollFactor(0);
+
+    // Create chart overlay graphics (screen-space, fixed to camera)
+    this.chartGraphics = this.add.graphics().setScrollFactor(0);
+
+    // Create HUD text objects (screen-space)
+    this.createHUDTexts();
 
     // Create physics world
     this.createPhysicsWorld();
@@ -188,6 +247,100 @@ export class GameScene extends Phaser.Scene {
     if (globalGameState.onStateChange) {
       globalGameState.onStateChange('playing');
     }
+  }
+
+  private createHUDTexts() {
+    const { width, height } = getScreenDimensions();
+
+    // Common text styles
+    const labelStyle = {
+      fontFamily: 'monospace',
+      fontSize: '11px',
+      color: '#888888',
+    };
+
+    const valueStyle = {
+      fontFamily: 'monospace',
+      fontSize: '14px',
+      color: '#ffffff',
+    };
+
+    const largeValueStyle = {
+      fontFamily: 'monospace',
+      fontSize: '18px',
+      color: '#ffffff',
+    };
+
+    // Top-right: Wealth display
+    this.hudTexts.wealth = this.add.text(width - 20, 20, '$10,000', largeValueStyle)
+      .setScrollFactor(0)
+      .setOrigin(1, 0);
+
+    // Top-right: Return percentage
+    this.hudTexts.return = this.add.text(width - 20, 45, '+0.00%', valueStyle)
+      .setScrollFactor(0)
+      .setOrigin(1, 0);
+
+    // Top-right: Leverage and Cash
+    this.hudTexts.leverage = this.add.text(width - 20, 70, 'Lev: 1.0x | Cash: 20%', labelStyle)
+      .setScrollFactor(0)
+      .setOrigin(1, 0);
+
+    // Top-left (chart area): Bar info
+    this.hudTexts.barInfo = this.add.text(20, 200, 'Bar 1 / 100', labelStyle)
+      .setScrollFactor(0)
+      .setOrigin(0, 0);
+
+    // Top-left (chart area): Date
+    this.hudTexts.price = this.add.text(20, 215, 'Price: $0.00', valueStyle)
+      .setScrollFactor(0)
+      .setOrigin(0, 0);
+
+    // Chart indicators (right side of chart)
+    this.hudTexts.rsi = this.add.text(390, 20, 'RSI: 50', labelStyle)
+      .setScrollFactor(0)
+      .setOrigin(1, 0);
+
+    this.hudTexts.volatility = this.add.text(390, 35, 'Vol: 0.0%', labelStyle)
+      .setScrollFactor(0)
+      .setOrigin(1, 0);
+
+    this.hudTexts.drawdown = this.add.text(390, 50, 'DD: 0.0%', labelStyle)
+      .setScrollFactor(0)
+      .setOrigin(1, 0);
+
+    // Top-left: Regime badge
+    this.hudTexts.regime = this.add.text(20, 20, 'CHOP', {
+      fontFamily: 'monospace',
+      fontSize: '12px',
+      color: '#ffffff',
+      backgroundColor: '#6b7280',
+      padding: { x: 8, y: 4 },
+    }).setScrollFactor(0).setOrigin(0, 0);
+
+    // Portfolio info (left side, below chart)
+    this.hudTexts.equity = this.add.text(20, 235, 'Equity: $10,000', valueStyle)
+      .setScrollFactor(0)
+      .setOrigin(0, 0);
+
+    this.hudTexts.cash = this.add.text(20, 255, 'Cash: $10,000', valueStyle)
+      .setScrollFactor(0)
+      .setOrigin(0, 0);
+
+    this.hudTexts.pnl = this.add.text(20, 275, 'P&L: $0.00', valueStyle)
+      .setScrollFactor(0)
+      .setOrigin(0, 0);
+
+    // Bottom-right: Controls hint
+    this.hudTexts.controls = this.add.text(width - 20, height - 20,
+      'Space: Play/Pause | Arrows: Drive | W/S: Leverage | Q/E: Cash',
+      { fontFamily: 'monospace', fontSize: '10px', color: '#666666' }
+    ).setScrollFactor(0).setOrigin(1, 1);
+
+    // Bottom-left: Speed indicator
+    this.hudTexts.speed = this.add.text(20, height - 20, '1x', labelStyle)
+      .setScrollFactor(0)
+      .setOrigin(0, 1);
   }
 
   private handleStateUpdate = (state: Partial<typeof this.externalState>) => {
@@ -590,44 +743,195 @@ export class GameScene extends Phaser.Scene {
   }
 
   private renderHUD() {
-    if (!this.hudGraphics) return;
+    if (!this.hudGraphics || !this.chartGraphics) return;
 
-    const { carPhysics, pnlPercent, drawdown, stressLevel, leverage, regime, wealth, datasetName } =
-      this.externalState;
+    const { width, height } = getScreenDimensions();
+    const {
+      carPhysics, pnlPercent, drawdown, stressLevel, leverage, cashBuffer, regime, wealth, datasetName,
+      chartCandles, currentIndex, totalBars, currentPrice, currentReturn, currentDate, indicators,
+      equity, cash, positions, isPlaying, playbackSpeed, canGoBack, canGoForward,
+    } = this.externalState;
+
+    // Clear chart graphics
+    this.chartGraphics.clear();
+
+    // Draw candlestick chart overlay (top-left)
+    if (chartCandles.length > 0) {
+      drawCandlestickChart(this.chartGraphics, chartCandles, currentIndex, {
+        x: 10,
+        y: 40,
+        width: 400,
+        height: 150,
+        candleCount: 60,
+        showVolume: true,
+        opacity: 0.9,
+      });
+    }
+
+    // Draw market info panel (top-right of chart)
+    drawMarketInfoPanel(this.chartGraphics, 420, 40, {
+      regime,
+      currentReturn,
+      price: currentPrice,
+      barIndex: currentIndex,
+      totalBars,
+      date: currentDate,
+      indicators,
+    });
+
+    // Draw portfolio panel (below chart on left)
+    drawPortfolioPanel(this.chartGraphics, 10, 200, {
+      equity,
+      cash,
+      pnlPercent,
+      drawdown,
+      leverage,
+      cashBuffer,
+      positions,
+    });
+
+    // Draw playback controls (bottom-left)
+    drawPlaybackControls(this.chartGraphics, 10, height - 70, {
+      isPlaying,
+      speed: playbackSpeed,
+      progress: totalBars > 0 ? currentIndex / totalBars : 0,
+      canGoBack,
+      canGoForward,
+    });
+
+    // Draw trading buttons (bottom-center)
+    drawTradingButtons(this.chartGraphics, width / 2 - 75, height - 80, {
+      hasPositions: positions.length > 0,
+      canTrade: true,
+    });
+
+    // Update HUD text elements
+    this.updateHUDTexts();
+
+    // Clear and redraw old HUD graphics (gauges)
+    this.hudGraphics.clear();
 
     const padding = 16;
     const gaugeRadius = 24;
 
-    // Background panel
+    // Right side panel: Engine and stress gauges
+    const rightPanelX = width - 300;
     this.hudGraphics.fillStyle(UI_COLORS.panel, 0.85);
-    this.hudGraphics.fillRoundedRect(padding, padding, 280, 100, 8);
+    this.hudGraphics.fillRoundedRect(rightPanelX, 100, 280, 80, 8);
     this.hudGraphics.lineStyle(1, UI_COLORS.border, 0.5);
-    this.hudGraphics.strokeRoundedRect(padding, padding, 280, 100, 8);
+    this.hudGraphics.strokeRoundedRect(rightPanelX, 100, 280, 80, 8);
 
     // Engine gauge (fuel level)
     const fuelColor = carPhysics.fuelLevel > 0.3 ? UI_COLORS.positive : UI_COLORS.negative;
-    drawGauge(this.hudGraphics, padding + 40, padding + 50, gaugeRadius, carPhysics.fuelLevel, fuelColor);
+    drawGauge(this.hudGraphics, rightPanelX + 40, 140, gaugeRadius, carPhysics.fuelLevel, fuelColor);
 
     // Stress gauge
     const stressColor = stressLevel < 0.5 ? UI_COLORS.positive : (stressLevel < 0.7 ? UI_COLORS.warning : UI_COLORS.negative);
-    drawGauge(this.hudGraphics, padding + 100, padding + 50, gaugeRadius, stressLevel, stressColor);
+    drawGauge(this.hudGraphics, rightPanelX + 100, 140, gaugeRadius, stressLevel, stressColor);
 
     // P&L bar
     const pnlNormalized = (pnlPercent + 100) / 200; // Map -100% to +100% -> 0 to 1
     const pnlColor = getPnLColor(pnlPercent);
-    drawBar(this.hudGraphics, padding + 140, padding + 30, 120, 12, pnlNormalized, pnlColor);
+    drawBar(this.hudGraphics, rightPanelX + 140, 120, 120, 12, pnlNormalized, pnlColor);
 
     // Drawdown bar
     const drawdownColor = getDrawdownColor(drawdown);
-    drawBar(this.hudGraphics, padding + 140, padding + 55, 120, 12, 1 - drawdown, drawdownColor);
+    drawBar(this.hudGraphics, rightPanelX + 140, 145, 120, 12, 1 - drawdown, drawdownColor);
 
     // Regime indicator
     const regimeColors = REGIME_COLORS[regime];
     this.hudGraphics.fillStyle(regimeColors.primary, 1);
-    this.hudGraphics.fillCircle(padding + 270, padding + 85, 8);
+    this.hudGraphics.fillCircle(rightPanelX + 270, 165, 8);
+  }
 
-    // Text labels (using Phaser text - not vector but necessary for readability)
-    // This would be added as separate text objects in create()
+  private updateHUDTexts() {
+    const {
+      wealth, pnlPercent, leverage, cashBuffer, regime, currentIndex, totalBars,
+      currentPrice, currentDate, indicators, equity, cash, playbackSpeed,
+    } = this.externalState;
+
+    // Update wealth display
+    if (this.hudTexts.wealth) {
+      this.hudTexts.wealth.setText(`$${wealth.toLocaleString()}`);
+      this.hudTexts.wealth.setColor(pnlPercent >= 0 ? '#10b981' : '#ef4444');
+    }
+
+    // Update return percentage
+    if (this.hudTexts.return) {
+      const sign = pnlPercent >= 0 ? '+' : '';
+      this.hudTexts.return.setText(`${sign}${pnlPercent.toFixed(2)}%`);
+      this.hudTexts.return.setColor(pnlPercent >= 0 ? '#10b981' : '#ef4444');
+    }
+
+    // Update leverage and cash
+    if (this.hudTexts.leverage) {
+      this.hudTexts.leverage.setText(`Lev: ${leverage.toFixed(1)}x | Cash: ${(cashBuffer * 100).toFixed(0)}%`);
+    }
+
+    // Update bar info
+    if (this.hudTexts.barInfo) {
+      this.hudTexts.barInfo.setText(`Bar ${currentIndex + 1} / ${totalBars}${currentDate ? ` | ${currentDate}` : ''}`);
+    }
+
+    // Update price
+    if (this.hudTexts.price) {
+      this.hudTexts.price.setText(`Price: $${currentPrice.toFixed(2)}`);
+    }
+
+    // Update indicators
+    if (this.hudTexts.rsi) {
+      this.hudTexts.rsi.setText(`RSI: ${indicators.rsi.toFixed(0)}`);
+      this.hudTexts.rsi.setColor(
+        indicators.rsi > 70 ? '#ef4444' :
+        indicators.rsi < 30 ? '#10b981' : '#888888'
+      );
+    }
+
+    if (this.hudTexts.volatility) {
+      this.hudTexts.volatility.setText(`Vol: ${indicators.volatility.toFixed(2)}%`);
+    }
+
+    if (this.hudTexts.drawdown) {
+      this.hudTexts.drawdown.setText(`DD: ${indicators.drawdown.toFixed(1)}%`);
+      this.hudTexts.drawdown.setColor(
+        indicators.drawdown > 20 ? '#ef4444' :
+        indicators.drawdown > 10 ? '#f59e0b' : '#888888'
+      );
+    }
+
+    // Update regime badge
+    if (this.hudTexts.regime) {
+      this.hudTexts.regime.setText(regime);
+      const regimeColors: Record<string, string> = {
+        BULL: '#10b981',
+        BEAR: '#ef4444',
+        CRASH: '#7f1d1d',
+        CHOP: '#6b7280',
+        RECOVERY: '#0ea5e9',
+      };
+      this.hudTexts.regime.setBackgroundColor(regimeColors[regime] || '#6b7280');
+    }
+
+    // Update portfolio info
+    if (this.hudTexts.equity) {
+      this.hudTexts.equity.setText(`Equity: $${equity.toLocaleString()}`);
+    }
+
+    if (this.hudTexts.cash) {
+      this.hudTexts.cash.setText(`Cash: $${cash.toLocaleString()}`);
+    }
+
+    if (this.hudTexts.pnl) {
+      const pnlAmount = equity - 10000; // Assuming initial capital of $10,000
+      const sign = pnlAmount >= 0 ? '+' : '';
+      this.hudTexts.pnl.setText(`P&L: ${sign}$${pnlAmount.toFixed(2)}`);
+      this.hudTexts.pnl.setColor(pnlAmount >= 0 ? '#10b981' : '#ef4444');
+    }
+
+    // Update speed indicator
+    if (this.hudTexts.speed) {
+      this.hudTexts.speed.setText(`Speed: ${playbackSpeed}x`);
+    }
   }
 
   private reportVehicleState() {

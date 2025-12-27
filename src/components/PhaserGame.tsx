@@ -37,6 +37,8 @@ const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
       position,
       datasetName,
       backtest,
+      timeline,
+      playback,
     } = useAppState();
 
     useImperativeHandle(ref, () => ({
@@ -156,9 +158,26 @@ const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
           hedgeCoverage: primaryHedge?.coverage ?? 0,
           hedgeRemaining: primaryHedge?.remainingCandles ?? 0,
           hedgeCooldown: backtest.portfolio.skillState.hedgeCooldown,
+          // Chart data for overlay
+          chartCandles: market.visibleCandles,
+          totalBars: timeline.totalBars,
+          currentIndex: timeline.currentIndex,
+          currentPrice: market.currentPrice,
+          currentReturn: market.currentReturn,
+          currentDate: market.currentCandle?.date || '',
+          indicators: market.indicators,
+          // Portfolio data for overlay
+          equity: backtest.portfolio.equity,
+          cash: backtest.portfolio.cash,
+          positions: backtest.portfolio.positions,
+          // Playback state
+          isPlaying: timeline.mode === 'playing',
+          playbackSpeed: timeline.playbackSpeed,
+          canGoBack: timeline.canGoBack,
+          canGoForward: timeline.canGoForward,
         });
       }
-    }, [terrain, physics, wealth, market.regime, datasetName, position, backtest]);
+    }, [terrain, physics, wealth, market, datasetName, position, backtest, timeline]);
 
     // Handle resize
     useEffect(() => {
