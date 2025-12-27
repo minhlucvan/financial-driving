@@ -1,14 +1,7 @@
-export { BacktestEngine } from './BacktestEngine';
-export type {
-  Order,
-  OrderType,
-  OrderSide,
-  OrderStatus,
-  Fill,
-  EngineEvents,
-  EngineConfig,
-  OHLCV,
-} from './BacktestEngine';
+/**
+ * Backtest Engine Module
+ *
+ * Core financial calculations for the backtesting system.
+ */
 
-export { useBacktestEngine } from './useBacktestEngine';
-export type { UseBacktestEngineReturn } from './useBacktestEngine';
+export * from './backtestEngine';
