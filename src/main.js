@@ -264,23 +264,31 @@ function create ()
         restartGame(this);
     }, this);
 
-    // Leverage controls (UP/DOWN to adjust)
-    var upKey = this.input.keyboard.addKey('UP');
-    upKey.on('down', function () {
-        if (gameState !== 'playing') {
-            // Adjust leverage for next game
-            wealthEngine.setLeverage(wealthEngine.leverage + 0.5);
-            console.log('Leverage set to: ' + wealthEngine.leverage.toFixed(1) + 'x');
-        }
+    // Financial position controls
+    // Leverage: W/S keys (works during game and game over)
+    var wKey = this.input.keyboard.addKey('W');
+    wKey.on('down', function () {
+        wealthEngine.setLeverage(wealthEngine.leverage + 0.25);
+        console.log('Leverage: ' + wealthEngine.leverage.toFixed(2) + 'x');
     }, this);
 
-    var downKey = this.input.keyboard.addKey('DOWN');
-    downKey.on('down', function () {
-        if (gameState !== 'playing') {
-            // Adjust leverage for next game
-            wealthEngine.setLeverage(wealthEngine.leverage - 0.5);
-            console.log('Leverage set to: ' + wealthEngine.leverage.toFixed(1) + 'x');
-        }
+    var sKey = this.input.keyboard.addKey('S');
+    sKey.on('down', function () {
+        wealthEngine.setLeverage(wealthEngine.leverage - 0.25);
+        console.log('Leverage: ' + wealthEngine.leverage.toFixed(2) + 'x');
+    }, this);
+
+    // Cash buffer: Q/E keys (works during game and game over)
+    var qKey = this.input.keyboard.addKey('Q');
+    qKey.on('down', function () {
+        wealthEngine.setCashBuffer(wealthEngine.cashBuffer + 0.05);
+        console.log('Cash Buffer: ' + (wealthEngine.cashBuffer * 100).toFixed(0) + '%');
+    }, this);
+
+    var eKey = this.input.keyboard.addKey('E');
+    eKey.on('down', function () {
+        wealthEngine.setCashBuffer(wealthEngine.cashBuffer - 0.05);
+        console.log('Cash Buffer: ' + (wealthEngine.cashBuffer * 100).toFixed(0) + '%');
     }, this);
 
     this.matter.add.mouseSpring();
@@ -410,10 +418,18 @@ function createMarketHUD(scene) {
         .setScrollFactor(0).setDepth(1000);
 
     // Controls hint (bottom left)
-    scene.add.text(16, screen_height - 40, 'Arrows: Drive | R: Restart | N: Dataset | F: Fullscreen', {
+    scene.add.text(16, screen_height - 55, 'Arrows: Drive | W/S: Leverage | Q/E: Cash Buffer', {
         fontFamily: 'monospace',
         fontSize: '11px',
         color: '#888888',
+        backgroundColor: '#000000aa',
+        padding: { x: 8, y: 4 }
+    }).setScrollFactor(0).setDepth(1000);
+
+    scene.add.text(16, screen_height - 30, 'R: Restart | N: Dataset | F: Fullscreen', {
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        color: '#666666',
         backgroundColor: '#000000aa',
         padding: { x: 8, y: 4 }
     }).setScrollFactor(0).setDepth(1000);
@@ -529,7 +545,9 @@ function createWealthHUD(scene) {
         waterText: null,
         drowningWarning: null,
         stressBar: null,
-        stressFill: null
+        stressFill: null,
+        // Physics modifiers display
+        physicsText: null
     };
 
     const hudY = 85;
@@ -637,6 +655,15 @@ function createWealthHUD(scene) {
         color: '#888888',
         padding: { x: 6, y: 2 }
     }).setScrollFactor(0).setDepth(1001);
+
+    // Physics modifiers display (shows how financial position affects car)
+    wealthHUD.physicsText = scene.add.text(16, hudY + 162, 'PHYSICS: Torque 1.0x | Brake 1.0x | Grip 100%', {
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        color: '#66aaff',
+        backgroundColor: '#000000aa',
+        padding: { x: 6, y: 3 }
+    }).setScrollFactor(0).setDepth(1001);
 }
 
 /**
@@ -680,18 +707,23 @@ function updateWealthHUD() {
     const days = wealthEngine.daysTraded;
     wealthHUD.drawdownText.setText('DD: ' + drawdown + '% | Days: ' + days + ' | Progress: ' + progress.toFixed(1) + '%');
 
-    // Update leverage and stability
-    const leverage = wealthEngine.leverage.toFixed(1);
+    // Update leverage, cash buffer, and stability
+    const leverage = wealthEngine.leverage.toFixed(2);
+    const cash = (wealthEngine.cashBuffer * 100).toFixed(0);
     const stability = (wealthEngine.getStability() * 100).toFixed(0);
-    wealthHUD.leverageText.setText('Leverage: ' + leverage + 'x | Stability: ' + stability + '%');
+    wealthHUD.leverageText.setText('Lev: ' + leverage + 'x | Cash: ' + cash + '% | Stab: ' + stability + '%');
 
-    // Color leverage text based on risk
-    if (wealthEngine.leverage > 2) {
+    // Color based on combined risk
+    if (wealthEngine.leverage > 2 && wealthEngine.cashBuffer < 0.15) {
+        wealthHUD.leverageText.setColor('#ff4444'); // Very high risk
+    } else if (wealthEngine.leverage > 2) {
         wealthHUD.leverageText.setColor('#ff6666'); // High risk
     } else if (wealthEngine.leverage > 1.5) {
         wealthHUD.leverageText.setColor('#ffaa66'); // Medium risk
+    } else if (wealthEngine.cashBuffer > 0.3) {
+        wealthHUD.leverageText.setColor('#66ff88'); // Conservative
     } else {
-        wealthHUD.leverageText.setColor('#88aaff'); // Low risk
+        wealthHUD.leverageText.setColor('#88aaff'); // Balanced
     }
 
     // Update stress bar
@@ -764,6 +796,34 @@ function updateWealthHUD() {
         wealthHUD.drowningWarning.setText('DROWNING! ' + timeLeft + 's');
     } else {
         wealthHUD.drowningWarning.setVisible(false);
+    }
+
+    // === UPDATE PHYSICS MODIFIERS DISPLAY ===
+    if (wealthHUD.physicsText && vehicle) {
+        const mods = vehicle.getPhysicsModifiers();
+        const torqueStr = mods.torque.toFixed(2) + 'x';
+        const brakeStr = mods.brake.toFixed(2) + 'x';
+        const gripStr = (mods.traction * 100).toFixed(0) + '%';
+
+        wealthHUD.physicsText.setText('PHYSICS: Torque ' + torqueStr + ' | Brake ' + brakeStr + ' | Grip ' + gripStr);
+
+        // Color based on physics state
+        let physicsColor = '#66aaff'; // Default blue
+
+        // High torque = orange/yellow (aggressive)
+        if (mods.torque > 1.5) {
+            physicsColor = '#ffaa44';
+        }
+        // Low grip = red (dangerous)
+        if (mods.traction < 0.7) {
+            physicsColor = '#ff6666';
+        }
+        // Good brakes + good grip = green (safe)
+        if (mods.brake > 1.2 && mods.traction > 0.8) {
+            physicsColor = '#66ff88';
+        }
+
+        wealthHUD.physicsText.setColor(physicsColor);
     }
 }
 
@@ -842,7 +902,7 @@ function showGameOverScreen(scene, result) {
         'Peak Wealth: $' + Math.floor(summary.peakWealth).toLocaleString(),
         'Max Drawdown: ' + summary.maxDrawdown.toFixed(1) + '%',
         '',
-        'Leverage: ' + summary.leverage.toFixed(1) + 'x',
+        'Position: ' + summary.leverage.toFixed(2) + 'x Leverage | ' + (summary.cashBuffer * 100).toFixed(0) + '% Cash',
         'Total Gains: $' + Math.floor(summary.totalGains).toLocaleString(),
         'Total Losses: $' + Math.floor(summary.totalLosses).toLocaleString()
     ];
@@ -867,7 +927,7 @@ function showGameOverScreen(scene, result) {
 
     // Controls hint
     gameOverScreen.controls = scene.add.text(screen_width / 2, screen_height - 60,
-        'Use UP/DOWN to adjust leverage before restart', {
+        'W/S: Adjust Leverage | Q/E: Adjust Cash Buffer', {
         fontFamily: 'monospace',
         fontSize: '12px',
         color: '#888888'
@@ -995,27 +1055,75 @@ function checkCrashConditions() {
 }
 
 /**
- * Apply leverage effects to vehicle physics
- * Higher leverage = faster but less stable
+ * Apply financial physics to vehicle
+ * Maps financial position to physical car behavior:
+ * - Leverage → Torque (more power)
+ * - Cash Buffer → Brake power (better stopping)
+ * - Volatility → Traction + Camera shake (rougher road)
  */
-function applyLeverageEffects() {
-    if (!vehicle || !vehicle.mainBody) return;
+function applyFinancialPhysics(scene) {
+    if (!vehicle || !vehicle.mainBody || !wealthEngine) return;
 
     const leverage = wealthEngine.leverage;
-    const stability = wealthEngine.getStability();
+    const cashBuffer = wealthEngine.cashBuffer;
+    const volatility = getCurrentVolatility();
+
+    // Update vehicle physics modifiers
+    vehicle.updateFinancialPhysics(leverage, cashBuffer, volatility);
+
+    // Apply volatility shake to car (simulates rough road)
+    vehicle.applyVolatilityShake(volatility);
+
+    // Apply camera shake based on volatility
+    applyCameraShake(scene, volatility);
 
     // Visual feedback: tint car based on stress/stability
-    const stress = wealthEngine.stress / wealthEngine.maxStress;
+    applyStressVisuals();
+}
 
-    if (stress > 0.7) {
-        // High stress: red tint
+/**
+ * Apply camera shake based on market volatility
+ * Higher volatility = more shake (foggy, uncertain road)
+ */
+function applyCameraShake(scene, volatility) {
+    if (!scene || !scene.cameras || !scene.cameras.main) return;
+
+    // Only shake when volatility is significant
+    if (volatility < 0.3) return;
+
+    // Calculate shake intensity (subtle but noticeable)
+    const intensity = (volatility - 0.3) * 3; // 0 to ~2.1 range
+    const duration = 50; // Quick shake pulses
+
+    // Apply shake effect
+    scene.cameras.main.shake(duration, intensity * 0.001, false);
+}
+
+/**
+ * Apply visual stress effects to car
+ */
+function applyStressVisuals() {
+    if (!vehicle || !vehicle.mainBody || !wealthEngine) return;
+
+    const leverage = wealthEngine.leverage;
+    const stress = wealthEngine.stress / wealthEngine.maxStress;
+    const volatility = getCurrentVolatility();
+
+    // Combined risk indicator
+    const riskLevel = (stress * 0.4) + ((leverage - 1) / 2 * 0.3) + (volatility * 0.3);
+
+    if (riskLevel > 0.7 || stress > 0.7) {
+        // High risk: red tint
         vehicle.mainBody.setTint(0xff6666);
-    } else if (stress > 0.4) {
-        // Medium stress: orange tint
+    } else if (riskLevel > 0.5 || stress > 0.4) {
+        // Medium risk: orange tint
         vehicle.mainBody.setTint(0xffaa66);
     } else if (leverage > 2) {
         // High leverage: yellow tint
         vehicle.mainBody.setTint(0xffff88);
+    } else if (volatility > 0.5) {
+        // High volatility: slight blue tint
+        vehicle.mainBody.setTint(0xaaccff);
     } else {
         // Normal: clear tint
         vehicle.mainBody.clearTint();
@@ -1026,6 +1134,10 @@ function update()
 {
     // Only process game logic if playing
     if (gameState === 'playing') {
+        // Apply financial physics BEFORE processing keys
+        // This updates torque/brake/traction multipliers
+        applyFinancialPhysics(this);
+
         vehicle.processKey(cursors);
         chunkloader.processChunk(this, vehicle.mainBody.x);
         backgroundloader.updateBackground(this, vehicle.mainBody.x);
@@ -1042,9 +1154,6 @@ function update()
         if (Math.abs(velocity) > 0.5) {
             wealthEngine.update(slope, velocity, volatility);
         }
-
-        // Apply leverage visual effects
-        applyLeverageEffects();
 
         // Check for crash conditions
         const crashType = checkCrashConditions();
