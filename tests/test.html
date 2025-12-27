@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial Drive - Test Suite</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            background: #1a1a2e;
+            color: #eee;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        h1 {
+            color: #4CAF50;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+
+        .test-output {
+            background: #0f0f1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .test-group {
+            margin-bottom: 15px;
+        }
+
+        .test-group-title {
+            color: #FFC107;
+            font-size: 14px;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        .test-result {
+            padding: 4px 8px;
+            margin: 2px 0;
+            font-size: 13px;
+        }
+
+        .test-pass {
+            color: #4CAF50;
+        }
+
+        .test-fail {
+            color: #F44336;
+            background: rgba(244, 67, 54, 0.1);
+            border-radius: 3px;
+        }
+
+        .summary {
+            background: #16213e;
+            border: 2px solid #4CAF50;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .summary.failed {
+            border-color: #F44336;
+        }
+
+        .summary h2 {
+            margin-bottom: 15px;
+        }
+
+        .stat {
+            display: inline-block;
+            margin-right: 30px;
+            font-size: 18px;
+        }
+
+        .stat-label {
+            color: #888;
+        }
+
+        .stat-value {
+            font-weight: bold;
+        }
+
+        .stat-value.pass {
+            color: #4CAF50;
+        }
+
+        .stat-value.fail {
+            color: #F44336;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            margin-top: 15px;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        .loading {
+            color: #FFC107;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏎️ Financial Drive - Test Suite</h1>
+
+    <div id="status" class="loading">Loading game files...</div>
+
+    <div id="test-output" class="test-output" style="display: none;"></div>
+
+    <div id="summary" class="summary" style="display: none;">
+        <h2>Test Results</h2>
+        <div class="stat">
+            <span class="stat-label">Total:</span>
+            <span class="stat-value" id="total">0</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Passed:</span>
+            <span class="stat-value pass" id="passed">0</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Failed:</span>
+            <span class="stat-value fail" id="failed">0</span>
+        </div>
+        <button onclick="runAllTests(); displayResults();">Run Tests Again</button>
+    </div>
+
+    <!-- Load game source files -->
+    <script src="../src/base.js"></script>
+    <script src="../src/wealthEngine.js"></script>
+    <script src="../src/marketTerrainGenerator.js"></script>
+    <script src="../src/marketIndicators.js"></script>
+
+    <!-- Load test file -->
+    <script src="financialMechanics.test.js"></script>
+
+    <script>
+        // Override console to capture output
+        const originalLog = console.log;
+        const originalError = console.error;
+        let outputBuffer = [];
+        let currentGroup = null;
+
+        console.log = function(...args) {
+            const message = args.join(' ');
+            outputBuffer.push({ type: 'log', message });
+            originalLog.apply(console, args);
+        };
+
+        console.error = function(...args) {
+            const message = args.join(' ');
+            outputBuffer.push({ type: 'error', message });
+            originalError.apply(console, args);
+        };
+
+        function displayResults() {
+            const output = document.getElementById('test-output');
+            const summary = document.getElementById('summary');
+            const status = document.getElementById('status');
+
+            output.innerHTML = '';
+            let currentGroupDiv = null;
+
+            outputBuffer.forEach(item => {
+                if (item.message.includes('===') && item.message.includes('Tests')) {
+                    // New test group
+                    currentGroupDiv = document.createElement('div');
+                    currentGroupDiv.className = 'test-group';
+
+                    const title = document.createElement('div');
+                    title.className = 'test-group-title';
+                    title.textContent = item.message.replace(/=/g, '').trim();
+                    currentGroupDiv.appendChild(title);
+
+                    output.appendChild(currentGroupDiv);
+                } else if (item.message.startsWith('✓') || item.message.startsWith('✗')) {
+                    const result = document.createElement('div');
+                    result.className = 'test-result ' + (item.type === 'error' ? 'test-fail' : 'test-pass');
+                    result.textContent = item.message;
+
+                    if (currentGroupDiv) {
+                        currentGroupDiv.appendChild(result);
+                    } else {
+                        output.appendChild(result);
+                    }
+                }
+            });
+
+            status.style.display = 'none';
+            output.style.display = 'block';
+            summary.style.display = 'block';
+        }
+
+        // Run tests when page loads
+        window.onload = function() {
+            const status = document.getElementById('status');
+
+            // Small delay to ensure all scripts are loaded
+            setTimeout(() => {
+                try {
+                    status.textContent = 'Running tests...';
+                    outputBuffer = [];
+
+                    const runner = runAllTests();
+
+                    document.getElementById('total').textContent = runner.passed + runner.failed;
+                    document.getElementById('passed').textContent = runner.passed;
+                    document.getElementById('failed').textContent = runner.failed;
+
+                    const summary = document.getElementById('summary');
+                    if (runner.failed > 0) {
+                        summary.classList.add('failed');
+                    } else {
+                        summary.classList.remove('failed');
+                    }
+
+                    displayResults();
+                } catch (error) {
+                    status.textContent = 'Error running tests: ' + error.message;
+                    status.style.color = '#F44336';
+                    originalError('Test error:', error);
+                }
+            }, 100);
+        };
+    </script>
+</body>
+</html>
