@@ -29,7 +29,15 @@ import type {
   PositionDirection,
   BacktestTick,
   BacktestEngineState,
+  CarPhysics,
+  RoadConditions,
+  RoadSegment,
+  CandlePattern,
 } from '../types';
+import {
+  LOSS_AVERSION_MULTIPLIER,
+  calculateRecoveryNeeded,
+} from '../types/game';
 import {
   INITIAL_APP_STATE,
   INITIAL_TIMELINE_STATE,
@@ -41,6 +49,8 @@ import {
   INITIAL_POSITION_STATE,
   INITIAL_PORTFOLIO_STATE,
   INITIAL_BACKTEST_STATE,
+  INITIAL_CAR_PHYSICS,
+  INITIAL_ROAD_CONDITIONS,
 } from '../types/state';
 import type { PlaybackControls } from '../types/timeline';
 
@@ -198,6 +208,198 @@ function calculateTerrainStateLegacy(
   };
 }
 
+// ============================================
+// FINANCIAL DRIVE CONCEPTS HELPERS
+// ============================================
+
+// Detect candle pattern from a candle and previous candle
+function detectCandlePattern(
+  candle: ProcessedCandle,
+  prevCandle: ProcessedCandle | null
+): CandlePattern {
+  const body = candle.close - candle.open;
+  const bodySize = Math.abs(body);
+  const range = candle.high - candle.low;
+  const upperWick = candle.high - Math.max(candle.open, candle.close);
+  const lowerWick = Math.min(candle.open, candle.close) - candle.low;
+
+  // Avoid division by zero
+  if (range === 0) return 'neutral';
+
+  const bodyRatio = bodySize / range;
+  const upperWickRatio = upperWick / range;
+  const lowerWickRatio = lowerWick / range;
+
+  // Doji: very small body
+  if (bodyRatio < 0.1) return 'doji';
+
+  // Marubozu: no or very small wicks
+  if (upperWickRatio < 0.05 && lowerWickRatio < 0.05) {
+    return body > 0 ? 'marubozu_bull' : 'marubozu_bear';
+  }
+
+  // Hammer: small body at top, long lower wick
+  if (lowerWickRatio > 0.6 && upperWickRatio < 0.1 && bodyRatio < 0.3) {
+    return 'hammer';
+  }
+
+  // Shooting star: small body at bottom, long upper wick
+  if (upperWickRatio > 0.6 && lowerWickRatio < 0.1 && bodyRatio < 0.3) {
+    return 'shooting_star';
+  }
+
+  // Engulfing patterns require previous candle
+  if (prevCandle) {
+    const prevBody = prevCandle.close - prevCandle.open;
+    // Bullish engulfing
+    if (prevBody < 0 && body > 0 && candle.open < prevCandle.close && candle.close > prevCandle.open) {
+      return 'bullish_engulfing';
+    }
+    // Bearish engulfing
+    if (prevBody > 0 && body < 0 && candle.open > prevCandle.close && candle.close < prevCandle.open) {
+      return 'bearish_engulfing';
+    }
+  }
+
+  return 'neutral';
+}
+
+// Calculate road conditions from market indicators
+// Based on Market Physics in CONCEPTS.md
+function calculateRoadConditions(
+  indicators: MarketIndicators,
+  candle: ProcessedCandle | null,
+  regime: MarketRegime
+): RoadConditions {
+  // ATR → Road roughness (normalized 0-1)
+  // Higher ATR = rougher road
+  const atrNormalized = Math.min(1, indicators.atr / 5); // Assuming ATR of 5 is very rough
+  const roughness = atrNormalized;
+
+  // Volatility → Visibility (inverted)
+  // Higher volatility = less visibility (more fog)
+  const visibility = Math.max(0.2, 1 - indicators.volatility * 0.5);
+
+  // Trend → Slope
+  // Already calculated elsewhere, but affects road slope
+  const slope = indicators.trend;
+
+  // RSI → Grip level
+  // Extreme RSI (< 30 or > 70) = slippery edges
+  const rsiDeviation = Math.abs(indicators.rsi - 50);
+  const grip = rsiDeviation > 20 ? 1 - (rsiDeviation - 20) / 30 : 1;
+
+  // Volume → Road width (would need volume data)
+  // For now, use a constant or derive from volatility
+  const width = candle ? Math.min(2, Math.max(0.5, candle.volume / 1000000)) : 1;
+
+  // Weather from regime
+  let weather: RoadConditions['weather'] = 'clear';
+  switch (regime) {
+    case 'BULL': weather = 'clear'; break;
+    case 'BEAR': weather = 'cloudy'; break;
+    case 'CRASH': weather = 'stormy'; break;
+    case 'CHOP': weather = 'foggy'; break;
+    case 'RECOVERY': weather = 'rainy'; break;
+  }
+
+  return { roughness, visibility, slope, grip, width, weather };
+}
+
+// Calculate car physics from portfolio state
+// Based on Core Mental Model in CONCEPTS.md
+function calculateCarPhysics(
+  portfolio: PortfolioState,
+  market: CurrentMarketState,
+  leverage: number
+): CarPhysics {
+  // Engine Power = Asset Allocation × Market Trend
+  // Position size multiplied by market momentum
+  const marketMomentum = 1 + market.indicators.trend / 20; // Trend as multiplier
+  const enginePower = Math.max(0.1, portfolio.totalExposure * marketMomentum);
+
+  // Brake Strength = Cash %
+  // More cash = better braking
+  const cashRatio = portfolio.cash / portfolio.initialCapital;
+  const brakeStrength = 0.5 + cashRatio * 1.5; // 0.5 to 2.0 range
+
+  // Acceleration Boost = Debt Ratio (Leverage)
+  // Higher leverage = more acceleration but more risk
+  const accelerationBoost = leverage;
+
+  // Traction = Based on volatility (lower = better)
+  const volatilityPenalty = market.indicators.volatility * 0.3;
+  const rsiPenalty = Math.abs(market.indicators.rsi - 50) > 20 ? 0.2 : 0;
+  const traction = Math.max(0.3, 1 - volatilityPenalty - rsiPenalty);
+
+  // Durability = Inverse of max drawdown experienced
+  // More drawdown = less durability remaining
+  const durability = Math.max(0.1, 1 - portfolio.maxDrawdown * 2);
+
+  // Recovery Drag = Extra resistance when in drawdown
+  // The deeper the hole, the harder to climb out
+  // Uses the mathematical law: recovery of L% requires L/(1-L)% gain
+  let recoveryDrag = 1;
+  if (portfolio.drawdown > 0) {
+    const recoveryNeeded = calculateRecoveryNeeded(portfolio.drawdown * 100);
+    // Drag increases as recovery needed increases
+    recoveryDrag = 1 + Math.min(2, recoveryNeeded / 100);
+  }
+
+  // Engine Temperature = Leverage stress
+  // Over-leveraged = overheating
+  const engineTemperature = Math.min(1, (leverage - 1) * 0.5 + portfolio.marginUsage);
+
+  // Fuel Level = Realized P&L as ratio
+  // Profits refill, losses drain
+  const fuelLevel = Math.max(0, Math.min(1,
+    0.5 + (portfolio.totalRealizedPnL / portfolio.initialCapital) * 2
+  ));
+
+  return {
+    enginePower,
+    brakeStrength,
+    accelerationBoost,
+    traction,
+    durability,
+    recoveryDrag,
+    engineTemperature,
+    fuelLevel,
+  };
+}
+
+// Generate a road segment from a candle
+function generateRoadSegment(
+  candle: ProcessedCandle,
+  prevCandle: ProcessedCandle | null,
+  indicators: MarketIndicators
+): RoadSegment {
+  const pattern = detectCandlePattern(candle, prevCandle);
+
+  // Slope from daily return (-32 to +32)
+  const maxReturn = 4;
+  const normalized = Math.max(-1, Math.min(1, candle.dailyReturn / maxReturn));
+  const slope = Math.round(normalized * 32);
+
+  // Roughness from intraday volatility
+  const roughness = Math.min(1, candle.intradayVolatility / 5);
+
+  // Width from volume (normalized)
+  const width = Math.min(2, Math.max(0.5, candle.volume / 1000000));
+
+  // Wick analysis for obstacles
+  const range = candle.high - candle.low;
+  const upperWick = candle.high - Math.max(candle.open, candle.close);
+  const lowerWick = Math.min(candle.open, candle.close) - candle.low;
+
+  // Long wicks create obstacles
+  const hasObstacle = range > 0 && (upperWick / range > 0.4 || lowerWick / range > 0.4);
+  const hasBump = range > 0 && upperWick / range > 0.4; // Upper wick = bump then drop
+  const hasPothole = range > 0 && lowerWick / range > 0.4; // Lower wick = dip then recovery
+
+  return { pattern, slope, roughness, width, hasObstacle, hasBump, hasPothole };
+}
+
 function calculatePhysicsModifiers(
   wealth: WealthState,
   market: CurrentMarketState
@@ -243,11 +445,14 @@ function updatePosition(position: Position, currentPrice: number): Position {
 }
 
 // Update all positions and calculate portfolio metrics
+// Includes loss aversion (2.25x) for stress calculation per CONCEPTS.md
 function updatePortfolio(
   portfolio: PortfolioState,
   currentPrice: number,
   currentIndex: number,
-  currentDate: string
+  currentDate: string,
+  market?: CurrentMarketState,
+  leverage: number = 1
 ): PortfolioState {
   // Update all positions
   const updatedPositions = portfolio.positions.map(pos => updatePosition(pos, currentPrice));
@@ -268,11 +473,28 @@ function updatePortfolio(
   const drawdown = peakEquity > 0 ? (peakEquity - equity) / peakEquity : 0;
   const maxDrawdown = Math.max(portfolio.maxDrawdown, drawdown);
 
-  // Calculate stress level based on exposure and drawdown
-  const stressLevel = Math.min(1, (totalExposure * 0.3) + (drawdown * 2));
+  // Calculate recovery needed (Mathematical Law from CONCEPTS.md)
+  // A loss of L% requires a gain of L/(1-L)% to recover
+  const recoveryNeeded = drawdown > 0 ? calculateRecoveryNeeded(drawdown * 100) : 0;
+
+  // Calculate stress with Loss Aversion (Psychological Law from CONCEPTS.md)
+  // Losses are weighted ~2.25× stronger than gains in human utility
+  const rawStress = Math.min(1, (totalExposure * 0.3) + (drawdown * 2));
+
+  // Apply loss aversion: stress accumulates 2.25× faster on losses
+  // If we're in a loss position, stress is amplified
+  const isInLoss = totalUnrealizedPnL < 0;
+  const stressLevel = isInLoss
+    ? Math.min(1, rawStress * LOSS_AVERSION_MULTIPLIER)
+    : rawStress;
 
   // Margin usage (simplified: exposure / max leverage)
   const marginUsage = totalExposure / 3; // Assuming max 3x leverage
+
+  // Calculate car physics if market data available
+  const carPhysics = market
+    ? calculateCarPhysics({ ...portfolio, totalExposure, drawdown, maxDrawdown, marginUsage }, market, leverage)
+    : portfolio.carPhysics;
 
   return {
     ...portfolio,
@@ -285,8 +507,11 @@ function updatePortfolio(
     peakEquity,
     drawdown,
     maxDrawdown,
+    recoveryNeeded,
     marginUsage,
+    rawStress,
     stressLevel,
+    carPhysics,
   };
 }
 
@@ -386,15 +611,27 @@ function closeAllPositions(
   return updatedPortfolio;
 }
 
-// Create a backtest tick record
+// Create a backtest tick record with road segment and conditions
 function createBacktestTick(
   index: number,
   timestamp: string,
   price: number,
-  portfolio: PortfolioState
+  portfolio: PortfolioState,
+  candle: ProcessedCandle | null,
+  prevCandle: ProcessedCandle | null,
+  indicators: MarketIndicators,
+  regime: MarketRegime
 ): BacktestTick {
   // Road height based on accumulated return (1% = 10 pixels)
   const RETURN_TO_HEIGHT_SCALE = 10;
+
+  // Generate road segment from candle
+  const roadSegment: RoadSegment = candle
+    ? generateRoadSegment(candle, prevCandle, indicators)
+    : { pattern: 'neutral', slope: 0, roughness: 0, width: 1, hasObstacle: false, hasBump: false, hasPothole: false };
+
+  // Calculate road conditions from indicators
+  const roadConditions = calculateRoadConditions(indicators, candle, regime);
 
   return {
     index,
@@ -403,6 +640,8 @@ function createBacktestTick(
     portfolioValue: portfolio.equity,
     accumulatedReturn: portfolio.accumulatedReturn,
     roadHeight: portfolio.accumulatedReturn * RETURN_TO_HEIGHT_SCALE,
+    roadSegment,
+    roadConditions,
   };
 }
 
@@ -528,12 +767,14 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
       const market = deriveMarketState(state.rawData, newIndex);
       const currentDate = market.currentCandle?.date || '';
 
-      // Update portfolio with new price
+      // Update portfolio with new price and market data for car physics
       const updatedPortfolio = updatePortfolio(
         state.backtest.portfolio,
         market.currentPrice,
         newIndex,
-        currentDate
+        currentDate,
+        market,
+        state.wealth.leverage
       );
 
       const terrain = calculateTerrainState(updatedPortfolio, market, state.terrain.roadHeight);
@@ -599,17 +840,29 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
       );
       const market = deriveMarketState(state.rawData, newIndex);
       const currentDate = market.currentCandle?.date || '';
+      const prevCandle = newIndex > 0 ? state.rawData[newIndex - 1] : null;
 
       // Update portfolio with new prices (new system)
       const updatedPortfolio = updatePortfolio(
         state.backtest.portfolio,
         market.currentPrice,
         newIndex,
-        currentDate
+        currentDate,
+        market,
+        state.wealth.leverage
       );
 
-      // Create tick record
-      const tick = createBacktestTick(newIndex, currentDate, market.currentPrice, updatedPortfolio);
+      // Create tick record with road segment and conditions
+      const tick = createBacktestTick(
+        newIndex,
+        currentDate,
+        market.currentPrice,
+        updatedPortfolio,
+        market.currentCandle,
+        prevCandle,
+        market.indicators,
+        market.regime
+      );
       const newTickHistory = [...state.backtest.tickHistory, tick];
 
       // Legacy: Calculate position P&L if position is open (for backward compatibility)
@@ -888,17 +1141,29 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
 
       const market = deriveMarketState(state.rawData, newIndex);
       const currentDate = market.currentCandle?.date || '';
+      const prevCandle = newIndex > 0 ? state.rawData[newIndex - 1] : null;
 
-      // Update portfolio with new prices
+      // Update portfolio with new prices and market data for car physics
       const newPortfolio = updatePortfolio(
         state.backtest.portfolio,
         market.currentPrice,
         newIndex,
-        currentDate
+        currentDate,
+        market,
+        state.wealth.leverage
       );
 
-      // Create tick record
-      const tick = createBacktestTick(newIndex, currentDate, market.currentPrice, newPortfolio);
+      // Create tick record with road segment and conditions
+      const tick = createBacktestTick(
+        newIndex,
+        currentDate,
+        market.currentPrice,
+        newPortfolio,
+        market.currentCandle,
+        prevCandle,
+        market.indicators,
+        market.regime
+      );
       const newTickHistory = [...state.backtest.tickHistory, tick];
 
       // Calculate terrain from portfolio accumulated return

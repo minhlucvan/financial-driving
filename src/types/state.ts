@@ -10,6 +10,8 @@ import type {
   GameState as GamePlayState,
   PortfolioState,
   BacktestTick,
+  CarPhysics,
+  RoadConditions,
 } from './game';
 
 // ============================================
@@ -195,6 +197,28 @@ export const INITIAL_TERRAIN_STATE: TerrainState = {
   exposureMultiplier: 0,  // No exposure = flat terrain
 };
 
+// Initial Car Physics - balanced neutral state
+export const INITIAL_CAR_PHYSICS: CarPhysics = {
+  enginePower: 1.0,         // Neutral engine power
+  brakeStrength: 1.0,       // Neutral braking
+  accelerationBoost: 1.0,   // No leverage boost
+  traction: 1.0,            // Full traction
+  durability: 1.0,          // Full durability
+  recoveryDrag: 1.0,        // No recovery drag (not in drawdown)
+  engineTemperature: 0.0,   // Cool engine
+  fuelLevel: 1.0,           // Full fuel (no realized losses)
+};
+
+// Initial Road Conditions - clear and smooth
+export const INITIAL_ROAD_CONDITIONS: RoadConditions = {
+  roughness: 0.0,           // Smooth road
+  visibility: 1.0,          // Full visibility
+  slope: 0,                 // Flat
+  grip: 1.0,                // Full grip
+  width: 1.0,               // Normal width
+  weather: 'clear',         // Clear weather
+};
+
 export const INITIAL_PORTFOLIO_STATE: PortfolioState = {
   initialCapital: 10000,
   cash: 10000,
@@ -209,8 +233,11 @@ export const INITIAL_PORTFOLIO_STATE: PortfolioState = {
   drawdown: 0,
   maxDrawdown: 0,
   peakEquity: 10000,
+  recoveryNeeded: 0,        // No recovery needed
   marginUsage: 0,
   stressLevel: 0,
+  rawStress: 0,
+  carPhysics: INITIAL_CAR_PHYSICS,
 };
 
 export const INITIAL_BACKTEST_STATE: BacktestEngineState = {

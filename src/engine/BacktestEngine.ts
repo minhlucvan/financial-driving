@@ -16,7 +16,41 @@ import type {
   PortfolioState,
   PositionDirection,
   BacktestTick,
+  CarPhysics,
+  RoadConditions,
+  RoadSegment,
 } from '../types';
+
+// Initial car physics for the engine
+const INITIAL_CAR_PHYSICS: CarPhysics = {
+  enginePower: 1.0,
+  brakeStrength: 1.0,
+  accelerationBoost: 1.0,
+  traction: 1.0,
+  durability: 1.0,
+  recoveryDrag: 1.0,
+  engineTemperature: 0.0,
+  fuelLevel: 1.0,
+};
+
+const INITIAL_ROAD_CONDITIONS: RoadConditions = {
+  roughness: 0.0,
+  visibility: 1.0,
+  slope: 0,
+  grip: 1.0,
+  width: 1.0,
+  weather: 'clear',
+};
+
+const INITIAL_ROAD_SEGMENT: RoadSegment = {
+  pattern: 'neutral',
+  slope: 0,
+  roughness: 0,
+  width: 1,
+  hasObstacle: false,
+  hasBump: false,
+  hasPothole: false,
+};
 
 // ============================================
 // ORDER TYPES
@@ -136,8 +170,11 @@ export class BacktestEngine {
       drawdown: 0,
       maxDrawdown: 0,
       peakEquity: this.config.initialCapital,
+      recoveryNeeded: 0,
       marginUsage: 0,
       stressLevel: 0,
+      rawStress: 0,
+      carPhysics: INITIAL_CAR_PHYSICS,
     };
   }
 
@@ -527,6 +564,8 @@ export class BacktestEngine {
       portfolioValue: this.portfolio.equity,
       accumulatedReturn: this.portfolio.accumulatedReturn,
       roadHeight: this.portfolio.accumulatedReturn * RETURN_TO_HEIGHT_SCALE,
+      roadSegment: INITIAL_ROAD_SEGMENT,
+      roadConditions: INITIAL_ROAD_CONDITIONS,
     };
   }
 
