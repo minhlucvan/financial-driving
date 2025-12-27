@@ -22,7 +22,8 @@ class WealthEngine {
 
         // State
         this.isRunning = true;
-        this.gameResult = null; // 'freedom', 'bankrupt', null
+        this.gameResult = null; // 'freedom', 'bankrupt', 'crash_flip', 'crash_fall', 'margin_call'
+        this.crashReason = null;
 
         // Wealth change rate (how fast wealth responds to terrain)
         this.sensitivity = config.sensitivity || 0.02; // 2% per unit slope
@@ -32,6 +33,31 @@ class WealthEngine {
 
         // Bankruptcy threshold
         this.bankruptcyThreshold = config.bankruptcyThreshold || 100; // Game over below $100
+
+        // === FINANCIAL POSITION ===
+        // Leverage: 1.0 = no leverage, 2.0 = 2x leveraged, etc.
+        // Higher leverage = faster gains/losses, less stability
+        this.leverage = config.leverage || 1.0;
+        this.maxLeverage = 3.0;
+        this.minLeverage = 0.5;
+
+        // Cash buffer: percentage of wealth held as cash (0-1)
+        // Higher cash = more stability, slower gains
+        this.cashBuffer = config.cashBuffer || 0.2; // 20% cash
+
+        // Risk tolerance: affects margin call threshold
+        this.riskTolerance = config.riskTolerance || 0.5; // 50% drawdown triggers margin call
+
+        // Margin call threshold (drawdown % that triggers forced liquidation)
+        this.marginCallThreshold = 0.4; // 40% drawdown with high leverage = margin call
+
+        // Stability: affected by leverage and volatility
+        // Lower stability = higher chance of crash on rough terrain
+        this.stability = 1.0;
+
+        // Stress level: accumulates during volatile periods
+        this.stress = 0;
+        this.maxStress = 100;
 
         // History for charts
         this.wealthHistory = [this.wealth];
@@ -50,11 +76,185 @@ class WealthEngine {
     }
 
     /**
+     * Adjust leverage (affects gains/losses multiplier and stability)
+     */
+    setLeverage(newLeverage) {
+        this.leverage = Math.max(this.minLeverage, Math.min(this.maxLeverage, newLeverage));
+        this.updateStability();
+    }
+
+    /**
+     * Adjust cash buffer (affects stability)
+     */
+    setCashBuffer(newBuffer) {
+        this.cashBuffer = Math.max(0, Math.min(0.5, newBuffer));
+        this.updateStability();
+    }
+
+    /**
+     * Update stability based on financial position
+     * Stability affects how likely the car is to flip/crash
+     */
+    updateStability() {
+        // Base stability
+        let stability = 1.0;
+
+        // Leverage reduces stability (more leverage = less stable)
+        stability -= (this.leverage - 1) * 0.3;
+
+        // Cash buffer increases stability
+        stability += this.cashBuffer * 0.4;
+
+        // Drawdown reduces stability
+        const drawdown = this.getDrawdown() / 100;
+        stability -= drawdown * 0.5;
+
+        // Stress reduces stability
+        stability -= (this.stress / this.maxStress) * 0.3;
+
+        this.stability = Math.max(0.1, Math.min(1.5, stability));
+        return this.stability;
+    }
+
+    /**
+     * Get current stability (for crash detection)
+     */
+    getStability() {
+        return this.updateStability();
+    }
+
+    /**
+     * Add stress (from volatility, rough terrain, near-crashes)
+     */
+    addStress(amount) {
+        this.stress = Math.min(this.maxStress, this.stress + amount);
+    }
+
+    /**
+     * Reduce stress over time (recovery)
+     */
+    reduceStress(amount) {
+        this.stress = Math.max(0, this.stress - amount);
+    }
+
+    /**
+     * Check for margin call condition
+     * High leverage + high drawdown = forced liquidation
+     */
+    checkMarginCall() {
+        const drawdown = this.getDrawdown() / 100;
+        const leverageRisk = (this.leverage - 1) / (this.maxLeverage - 1);
+
+        // Margin call triggered when:
+        // - High drawdown (> 30%) AND high leverage (> 1.5x)
+        // - Or extreme drawdown (> 50%) at any leverage
+        if (drawdown > 0.5) {
+            return true;
+        }
+        if (drawdown > 0.3 && this.leverage > 1.5) {
+            return true;
+        }
+        if (drawdown > this.marginCallThreshold && leverageRisk > 0.3) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Trigger a crash (called from game when physical crash detected)
+     */
+    triggerCrash(crashType) {
+        if (!this.isRunning) return;
+
+        this.crashes++;
+        this.isRunning = false;
+        this.crashReason = crashType;
+
+        switch (crashType) {
+            case 'flip':
+                // Over-leveraged position got wrecked
+                this.gameResult = 'crash_flip';
+                this.wealth = Math.max(0, this.wealth * 0.1); // Lose 90%
+                break;
+
+            case 'fall':
+                // Fell off the market entirely
+                this.gameResult = 'crash_fall';
+                this.wealth = 0;
+                break;
+
+            case 'margin_call':
+                // Forced liquidation
+                this.gameResult = 'margin_call';
+                this.wealth = Math.max(0, this.wealth * 0.2); // Lose 80%
+                break;
+
+            case 'stress':
+                // System overload from too much volatility
+                this.gameResult = 'crash_stress';
+                this.wealth = Math.max(0, this.wealth * 0.5); // Lose 50%
+                break;
+
+            default:
+                this.gameResult = 'crash';
+                this.wealth = 0;
+        }
+
+        return this.gameResult;
+    }
+
+    /**
+     * Get crash message for game over screen
+     */
+    getCrashMessage() {
+        switch (this.gameResult) {
+            case 'crash_flip':
+                return {
+                    title: 'OVER-LEVERAGED!',
+                    subtitle: 'Your aggressive position flipped on you.',
+                    lesson: 'Leverage amplifies gains AND losses. The market humbled you.'
+                };
+            case 'crash_fall':
+                return {
+                    title: 'TOTAL WIPEOUT!',
+                    subtitle: 'You fell off the market entirely.',
+                    lesson: 'When you lose control, there\'s no recovery.'
+                };
+            case 'margin_call':
+                return {
+                    title: 'MARGIN CALL!',
+                    subtitle: 'Your broker forced liquidation.',
+                    lesson: 'Borrowed money comes with strings attached.'
+                };
+            case 'crash_stress':
+                return {
+                    title: 'SYSTEM OVERLOAD!',
+                    subtitle: 'Too much volatility broke your strategy.',
+                    lesson: 'Even good positions fail under extreme stress.'
+                };
+            case 'bankrupt':
+                return {
+                    title: 'BANKRUPT!',
+                    subtitle: 'Your wealth machine ran out of fuel.',
+                    lesson: 'Slow and steady sometimes wins the race.'
+                };
+            default:
+                return {
+                    title: 'GAME OVER',
+                    subtitle: 'The market claimed another victim.',
+                    lesson: 'Try again with a different strategy.'
+                };
+        }
+    }
+
+    /**
      * Update wealth based on current terrain slope
      * @param {number} slope - Terrain slope (-32 to +32)
      * @param {number} velocity - Car velocity (faster = more exposure)
+     * @param {number} volatility - Current market volatility (0-1)
      */
-    update(slope, velocity = 1) {
+    update(slope, velocity = 1, volatility = 0) {
         if (!this.isRunning) return;
 
         // Normalize slope to return (-1 to +1 range)
@@ -64,13 +264,31 @@ class WealthEngine {
         // Uphill (positive slope) = gains
         // Downhill (negative slope) = losses
         const velocityMultiplier = Math.min(Math.abs(velocity) / 5, 2); // Cap at 2x
-        const dailyReturn = normalizedSlope * this.sensitivity * velocityMultiplier;
+
+        // Apply leverage to returns (amplifies both gains and losses!)
+        const leveragedReturn = normalizedSlope * this.sensitivity * velocityMultiplier * this.leverage;
+
+        // Cash buffer reduces exposure (only invest non-cash portion)
+        const exposedPortion = 1 - this.cashBuffer;
+        const dailyReturn = leveragedReturn * exposedPortion;
 
         // Add passive income (reward for staying in the game)
         const passiveGain = this.wealth * this.passiveRate;
 
         // Calculate total change
         const wealthChange = (this.wealth * dailyReturn) + passiveGain;
+
+        // Add stress from volatility and negative returns
+        if (volatility > 0.3) {
+            this.addStress(volatility * 2);
+        }
+        if (normalizedSlope < -0.3) {
+            this.addStress(Math.abs(normalizedSlope) * 3);
+        }
+        // Reduce stress slowly during calm periods
+        if (volatility < 0.2 && normalizedSlope > 0) {
+            this.reduceStress(0.5);
+        }
 
         // Track gains/losses
         if (wealthChange > 0) {
@@ -199,6 +417,7 @@ class WealthEngine {
     getSummary() {
         return {
             result: this.gameResult,
+            crashReason: this.crashReason,
             finalWealth: this.wealth,
             startingWealth: this.startingWealth,
             target: this.financialFreedomTarget,
@@ -210,7 +429,10 @@ class WealthEngine {
             totalLosses: this.stats.totalLosses,
             bestDay: this.stats.bestDay,
             worstDay: this.stats.worstDay,
-            cagr: this.getCAGR()
+            cagr: this.getCAGR(),
+            leverage: this.leverage,
+            cashBuffer: this.cashBuffer,
+            crashes: this.crashes
         };
     }
 
@@ -227,7 +449,14 @@ class WealthEngine {
         this.crashes = 0;
         this.isRunning = true;
         this.gameResult = null;
+        this.crashReason = null;
         this.wealthHistory = [this.wealth];
+
+        // Reset financial position
+        this.leverage = config.leverage || 1.0;
+        this.cashBuffer = config.cashBuffer || 0.2;
+        this.stability = 1.0;
+        this.stress = 0;
 
         this.stats = {
             maxWealth: this.wealth,

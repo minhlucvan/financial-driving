@@ -264,6 +264,25 @@ function create ()
         restartGame(this);
     }, this);
 
+    // Leverage controls (UP/DOWN to adjust)
+    var upKey = this.input.keyboard.addKey('UP');
+    upKey.on('down', function () {
+        if (gameState !== 'playing') {
+            // Adjust leverage for next game
+            wealthEngine.setLeverage(wealthEngine.leverage + 0.5);
+            console.log('Leverage set to: ' + wealthEngine.leverage.toFixed(1) + 'x');
+        }
+    }, this);
+
+    var downKey = this.input.keyboard.addKey('DOWN');
+    downKey.on('down', function () {
+        if (gameState !== 'playing') {
+            // Adjust leverage for next game
+            wealthEngine.setLeverage(wealthEngine.leverage - 0.5);
+            console.log('Leverage set to: ' + wealthEngine.leverage.toFixed(1) + 'x');
+        }
+    }, this);
+
     this.matter.add.mouseSpring();
 
     cursors = this.input.keyboard.createCursorKeys();
@@ -504,7 +523,9 @@ function createWealthHUD(scene) {
         wealthText: null,
         targetText: null,
         drawdownText: null,
-        daysText: null
+        leverageText: null,
+        stressBar: null,
+        stressFill: null
     };
 
     const hudY = 85;
@@ -549,8 +570,34 @@ function createWealthHUD(scene) {
         padding: { x: 6, y: 3 }
     }).setScrollFactor(0).setDepth(1001);
 
+    // Leverage and stability display
+    wealthHUD.leverageText = scene.add.text(16, hudY + 92, 'Leverage: 1.0x | Stability: 100%', {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#88aaff',
+        backgroundColor: '#000000aa',
+        padding: { x: 6, y: 3 }
+    }).setScrollFactor(0).setDepth(1001);
+
+    // Stress bar background
+    wealthHUD.stressBar = scene.add.graphics();
+    wealthHUD.stressBar.setScrollFactor(0).setDepth(1001);
+    wealthHUD.stressBar.fillStyle(0x333333, 0.7);
+    wealthHUD.stressBar.fillRoundedRect(16, hudY + 116, 120, 8, 2);
+
+    // Stress bar fill
+    wealthHUD.stressFill = scene.add.graphics();
+    wealthHUD.stressFill.setScrollFactor(0).setDepth(1002);
+
+    // Stress label
+    scene.add.text(140, hudY + 113, 'STRESS', {
+        fontFamily: 'monospace',
+        fontSize: '10px',
+        color: '#666666'
+    }).setScrollFactor(0).setDepth(1001);
+
     // Goal label
-    scene.add.text(16, hudY + 92, 'GOAL: FINANCIAL FREEDOM', {
+    scene.add.text(16, hudY + 130, 'GOAL: FINANCIAL FREEDOM', {
         fontFamily: 'monospace',
         fontSize: '10px',
         color: '#888888',
@@ -598,6 +645,35 @@ function updateWealthHUD() {
     const drawdown = wealthEngine.getDrawdown().toFixed(1);
     const days = wealthEngine.daysTraded;
     wealthHUD.drawdownText.setText('DD: ' + drawdown + '% | Days: ' + days + ' | Progress: ' + progress.toFixed(1) + '%');
+
+    // Update leverage and stability
+    const leverage = wealthEngine.leverage.toFixed(1);
+    const stability = (wealthEngine.getStability() * 100).toFixed(0);
+    wealthHUD.leverageText.setText('Leverage: ' + leverage + 'x | Stability: ' + stability + '%');
+
+    // Color leverage text based on risk
+    if (wealthEngine.leverage > 2) {
+        wealthHUD.leverageText.setColor('#ff6666'); // High risk
+    } else if (wealthEngine.leverage > 1.5) {
+        wealthHUD.leverageText.setColor('#ffaa66'); // Medium risk
+    } else {
+        wealthHUD.leverageText.setColor('#88aaff'); // Low risk
+    }
+
+    // Update stress bar
+    const stressPercent = wealthEngine.stress / wealthEngine.maxStress;
+    const stressWidth = Math.max(0, stressPercent * 120);
+
+    wealthHUD.stressFill.clear();
+
+    // Stress bar color
+    let stressColor = 0x4CAF50; // Green - low stress
+    if (stressPercent > 0.7) stressColor = 0xF44336; // Red - danger
+    else if (stressPercent > 0.4) stressColor = 0xFF9800; // Orange - warning
+    else if (stressPercent > 0.2) stressColor = 0xFFC107; // Yellow - caution
+
+    wealthHUD.stressFill.fillStyle(stressColor, 1);
+    wealthHUD.stressFill.fillRoundedRect(16, 201, stressWidth, 8, 2);
 }
 
 /**
@@ -608,21 +684,31 @@ function showGameOverScreen(scene, result) {
 
     const summary = wealthEngine.getSummary();
     const isVictory = result === 'freedom';
+    const isCrash = result.startsWith('crash_') || result === 'margin_call';
 
-    // Overlay
+    // Get crash-specific messages
+    const crashMsg = wealthEngine.getCrashMessage();
+
+    // Overlay color based on result type
+    let overlayColor = 0x440000; // Default red
+    if (isVictory) overlayColor = 0x004400; // Green
+    else if (result === 'margin_call') overlayColor = 0x440044; // Purple
+    else if (result === 'crash_flip') overlayColor = 0x442200; // Orange
+    else if (result === 'crash_stress') overlayColor = 0x444400; // Yellow
+
     gameOverScreen.overlay = scene.add.rectangle(
         screen_width / 2, screen_height / 2,
         screen_width, screen_height,
-        isVictory ? 0x004400 : 0x440000, 0.85
+        overlayColor, 0.9
     ).setScrollFactor(0).setDepth(2000);
 
-    // Title
-    const titleText = isVictory ? 'FINANCIAL FREEDOM!' : 'BANKRUPT!';
-    const titleColor = isVictory ? '#00ff00' : '#ff0000';
+    // Title from crash message or victory
+    const titleText = isVictory ? 'FINANCIAL FREEDOM!' : crashMsg.title;
+    const titleColor = isVictory ? '#00ff00' : '#ff4444';
 
-    gameOverScreen.title = scene.add.text(screen_width / 2, 80, titleText, {
+    gameOverScreen.title = scene.add.text(screen_width / 2, 60, titleText, {
         fontFamily: 'monospace',
-        fontSize: '48px',
+        fontSize: '42px',
         fontStyle: 'bold',
         color: titleColor
     }).setOrigin(0.5).setScrollFactor(0).setDepth(2001);
@@ -630,41 +716,52 @@ function showGameOverScreen(scene, result) {
     // Subtitle
     const subtitle = isVictory
         ? 'You built your wealth machine!'
-        : 'The market claimed another victim...';
+        : crashMsg.subtitle;
 
-    gameOverScreen.subtitle = scene.add.text(screen_width / 2, 130, subtitle, {
+    gameOverScreen.subtitle = scene.add.text(screen_width / 2, 110, subtitle, {
         fontFamily: 'monospace',
-        fontSize: '18px',
+        fontSize: '16px',
         color: '#cccccc'
     }).setOrigin(0.5).setScrollFactor(0).setDepth(2001);
 
+    // Lesson learned (for crashes)
+    if (!isVictory) {
+        gameOverScreen.lesson = scene.add.text(screen_width / 2, 140, crashMsg.lesson, {
+            fontFamily: 'monospace',
+            fontSize: '14px',
+            color: '#ffcc00',
+            fontStyle: 'italic'
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(2001);
+    }
+
     // Stats panel
-    const statsY = 180;
+    const statsY = isVictory ? 160 : 180;
     const stats = [
         'Final Wealth: ' + wealthEngine.getWealthDisplay(),
         'Starting: $' + summary.startingWealth.toLocaleString(),
-        'Target: ' + wealthEngine.getTargetDisplay(),
         'Progress: ' + summary.progress.toFixed(1) + '%',
         '',
         'Days Traded: ' + summary.daysTraded,
         'Peak Wealth: $' + Math.floor(summary.peakWealth).toLocaleString(),
         'Max Drawdown: ' + summary.maxDrawdown.toFixed(1) + '%',
         '',
+        'Leverage: ' + summary.leverage.toFixed(1) + 'x',
+        'Cash Buffer: ' + (summary.cashBuffer * 100).toFixed(0) + '%',
+        '',
         'Total Gains: $' + Math.floor(summary.totalGains).toLocaleString(),
-        'Total Losses: $' + Math.floor(summary.totalLosses).toLocaleString(),
-        'CAGR: ' + summary.cagr.toFixed(1) + '%'
+        'Total Losses: $' + Math.floor(summary.totalLosses).toLocaleString()
     ];
 
     gameOverScreen.stats = scene.add.text(screen_width / 2, statsY, stats.join('\n'), {
         fontFamily: 'monospace',
-        fontSize: '16px',
+        fontSize: '14px',
         color: '#ffffff',
-        lineSpacing: 8,
+        lineSpacing: 6,
         align: 'center'
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(2001);
 
     // Restart prompt
-    gameOverScreen.restart = scene.add.text(screen_width / 2, screen_height - 80,
+    gameOverScreen.restart = scene.add.text(screen_width / 2, screen_height - 100,
         'Press R to restart', {
         fontFamily: 'monospace',
         fontSize: '24px',
@@ -673,13 +770,21 @@ function showGameOverScreen(scene, result) {
         padding: { x: 20, y: 10 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(2001);
 
+    // Controls hint
+    gameOverScreen.controls = scene.add.text(screen_width / 2, screen_height - 60,
+        'Use UP/DOWN to adjust leverage before restart', {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#888888'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(2001);
+
     // Market info
     const datasetInfo = marketDataLoader.getDatasetInfo(currentMarketDataKey);
-    gameOverScreen.market = scene.add.text(screen_width / 2, screen_height - 40,
+    gameOverScreen.market = scene.add.text(screen_width / 2, screen_height - 35,
         'Market: ' + (datasetInfo ? datasetInfo.name : currentMarketDataKey), {
         fontFamily: 'monospace',
-        fontSize: '14px',
-        color: '#888888'
+        fontSize: '12px',
+        color: '#666666'
     }).setOrigin(0.5).setScrollFactor(0).setDepth(2001);
 }
 
@@ -692,8 +797,10 @@ function hideGameOverScreen() {
     if (gameOverScreen.overlay) gameOverScreen.overlay.destroy();
     if (gameOverScreen.title) gameOverScreen.title.destroy();
     if (gameOverScreen.subtitle) gameOverScreen.subtitle.destroy();
+    if (gameOverScreen.lesson) gameOverScreen.lesson.destroy();
     if (gameOverScreen.stats) gameOverScreen.stats.destroy();
     if (gameOverScreen.restart) gameOverScreen.restart.destroy();
+    if (gameOverScreen.controls) gameOverScreen.controls.destroy();
     if (gameOverScreen.market) gameOverScreen.market.destroy();
 
     gameOverScreen = null;
@@ -734,6 +841,92 @@ function getCurrentTerrainSlope() {
     return 0;
 }
 
+/**
+ * Get current market volatility (0-1 scale)
+ */
+function getCurrentVolatility() {
+    if (!marketIndicators) return 0;
+    const data = marketIndicators.getDisplayData();
+    // Normalize ATR to 0-1 scale (assuming ATR of 50+ is very high)
+    return Math.min(1, parseFloat(data.volatility.atr) / 50 || 0);
+}
+
+/**
+ * Check for physical crash conditions
+ * Returns crash type or null if no crash
+ */
+function checkCrashConditions() {
+    if (!vehicle || !vehicle.mainBody || !vehicle.mainBody.body) return null;
+
+    const body = vehicle.mainBody.body;
+    const rotation = vehicle.mainBody.rotation;
+    const y = vehicle.mainBody.y;
+
+    // Get stability (affected by leverage, drawdown, etc.)
+    const stability = wealthEngine.getStability();
+
+    // === FLIP DETECTION ===
+    // Car is considered flipped if rotated more than 90 degrees
+    // Lower stability = easier to flip (smaller angle threshold)
+    const flipThreshold = Math.PI * (0.4 + stability * 0.3); // 72-126 degrees based on stability
+
+    // Normalize rotation to -PI to PI range
+    let normalizedRotation = rotation % (2 * Math.PI);
+    if (normalizedRotation > Math.PI) normalizedRotation -= 2 * Math.PI;
+    if (normalizedRotation < -Math.PI) normalizedRotation += 2 * Math.PI;
+
+    if (Math.abs(normalizedRotation) > flipThreshold) {
+        return 'flip';
+    }
+
+    // === FALL DETECTION ===
+    // Car fell too far below expected terrain level
+    const fallThreshold = 2000; // Pixels below spawn point
+    if (y > fallThreshold) {
+        return 'fall';
+    }
+
+    // === MARGIN CALL CHECK ===
+    if (wealthEngine.checkMarginCall()) {
+        return 'margin_call';
+    }
+
+    // === STRESS OVERLOAD ===
+    if (wealthEngine.stress >= wealthEngine.maxStress) {
+        return 'stress';
+    }
+
+    return null;
+}
+
+/**
+ * Apply leverage effects to vehicle physics
+ * Higher leverage = faster but less stable
+ */
+function applyLeverageEffects() {
+    if (!vehicle || !vehicle.mainBody) return;
+
+    const leverage = wealthEngine.leverage;
+    const stability = wealthEngine.getStability();
+
+    // Visual feedback: tint car based on stress/stability
+    const stress = wealthEngine.stress / wealthEngine.maxStress;
+
+    if (stress > 0.7) {
+        // High stress: red tint
+        vehicle.mainBody.setTint(0xff6666);
+    } else if (stress > 0.4) {
+        // Medium stress: orange tint
+        vehicle.mainBody.setTint(0xffaa66);
+    } else if (leverage > 2) {
+        // High leverage: yellow tint
+        vehicle.mainBody.setTint(0xffff88);
+    } else {
+        // Normal: clear tint
+        vehicle.mainBody.clearTint();
+    }
+}
+
 function update()
 {
     // Only process game logic if playing
@@ -745,13 +938,23 @@ function update()
         // Update market HUD
         updateHUDRegime();
 
-        // Get terrain slope and update wealth
+        // Get terrain data
         const slope = getCurrentTerrainSlope();
         const velocity = vehicle.mainBody.body.velocity.x;
+        const volatility = getCurrentVolatility();
 
         // Only update wealth when car is moving
         if (Math.abs(velocity) > 0.5) {
-            wealthEngine.update(slope, velocity);
+            wealthEngine.update(slope, velocity, volatility);
+        }
+
+        // Apply leverage visual effects
+        applyLeverageEffects();
+
+        // Check for crash conditions
+        const crashType = checkCrashConditions();
+        if (crashType) {
+            wealthEngine.triggerCrash(crashType);
         }
 
         // Update wealth HUD
