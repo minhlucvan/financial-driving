@@ -1,6 +1,13 @@
 {
-  "version": "1.0.0",
-  "description": "Available market datasets for Financial Drive",
+  "version": "2.0.0",
+  "description": "Real market datasets for Financial Drive - patterns based on actual market data",
+  "lastUpdated": "2025-12-27T20:19:15.653Z",
+  "dataSources": [
+    "Yahoo Finance (https://finance.yahoo.com)",
+    "CoinMarketCap (https://coinmarketcap.com)",
+    "MacroTrends (https://macrotrends.net)",
+    "Nasdaq (https://nasdaq.com)"
+  ],
   "datasets": [
     {
       "key": "sp500",
@@ -9,34 +16,34 @@
       "symbol": "SPY",
       "difficulty": "easy",
       "category": "index",
-      "description": "Steady bull market - good for learning"
+      "description": "Real S&P 500 ETF patterns - broad market exposure"
     },
     {
       "key": "steady_growth",
       "path": "./assets/market/steady_growth.json",
-      "name": "Blue Chip Steady Growth",
-      "symbol": "BLUE",
+      "name": "Berkshire Hathaway B",
+      "symbol": "BRK-B",
       "difficulty": "easy",
       "category": "stock",
-      "description": "Low volatility blue chip - conservative play"
+      "description": "Real Berkshire Hathaway patterns - steady blue chip"
     },
     {
       "key": "bitcoin",
       "path": "./assets/market/bitcoin.json",
       "name": "Bitcoin",
-      "symbol": "BTC",
+      "symbol": "BTC-USD",
       "difficulty": "hard",
       "category": "crypto",
-      "description": "High volatility crypto - for experienced players"
+      "description": "Real Bitcoin price patterns - high volatility"
     },
     {
       "key": "meme_stock",
       "path": "./assets/market/meme_stock.json",
-      "name": "Volatile Meme Stock",
-      "symbol": "MEME",
+      "name": "GameStop",
+      "symbol": "GME",
       "difficulty": "extreme",
       "category": "stock",
-      "description": "Extreme volatility - pump and dump patterns"
+      "description": "Real GameStop patterns - famous meme stock"
     }
   ],
   "scenarios": [
@@ -47,8 +54,9 @@
       "symbol": "SPY",
       "difficulty": "extreme",
       "category": "scenario",
-      "description": "Lehman Brothers collapse - survive the crash",
-      "historicalEvent": "2008 Financial Crisis"
+      "description": "Real 2008 crash patterns - Lehman Brothers collapse",
+      "historicalEvent": "2008 Financial Crisis",
+      "dateRange": "2008-09 to 2009-04"
     },
     {
       "key": "covid_2020",
@@ -57,8 +65,9 @@
       "symbol": "SPY",
       "difficulty": "hard",
       "category": "scenario",
-      "description": "Fastest bear market ever - V-shaped recovery",
-      "historicalEvent": "COVID-19 Pandemic"
+      "description": "Real COVID crash patterns - V-shaped recovery",
+      "historicalEvent": "COVID-19 Pandemic",
+      "dateRange": "2020-02 to 2020-07"
     },
     {
       "key": "dotcom_2000",
@@ -67,18 +76,20 @@
       "symbol": "QQQ",
       "difficulty": "extreme",
       "category": "scenario",
-      "description": "Tech bubble collapse - multi-year decline",
-      "historicalEvent": "Dotcom Bubble"
+      "description": "Real Nasdaq dotcom collapse patterns",
+      "historicalEvent": "Dotcom Bubble",
+      "dateRange": "2000-03 to 2002-10"
     },
     {
       "key": "crypto_winter_2022",
       "path": "./assets/market/scenarios/crypto_winter_2022.json",
       "name": "Crypto Winter 2022",
-      "symbol": "BTC",
+      "symbol": "BTC-USD",
       "difficulty": "extreme",
       "category": "scenario",
-      "description": "Terra/Luna collapse, FTX bankruptcy",
-      "historicalEvent": "2022 Crypto Winter"
+      "description": "Real Bitcoin 2022 crash - Terra/Luna, FTX",
+      "historicalEvent": "2022 Crypto Winter",
+      "dateRange": "2021-11 to 2022-12"
     }
   ]
 }
