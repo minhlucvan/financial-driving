@@ -81,7 +81,31 @@ Bull market → smooth uphill highway
 Chop → winding mountain road
 Crash → steep downhill + fog + potholes
 
-You cannot see future road. Fog-of-war beyond current candle.
+⸻
+
+🔮 Historical vs Future Road (Fog of War)
+
+The road is divided into two parts:
+
+**Historical (Behind Car):** 100% opacity
+- You've driven it
+- Represents actual market history
+- Clear, certain, unchangeable
+
+**Future (Ahead of Car):** 50% opacity
+- Uncertain projection
+- Faded/fogged terrain
+- Shows current momentum hints but NOT certainty
+
+Visual Elements:
+- **NOW marker:** Yellow vertical line at car position
+- **Gradient zone:** Smooth transition from clear to fog
+- **Projection indicator:** "AHEAD: ↗ Likely uphill" based on momentum
+- **Fog overlay:** Semi-transparent cover on future terrain
+
+Press **V** to toggle fog of war on/off.
+
+This enforces the core lesson: **You cannot see the future market. Past performance ≠ future results.**
 
 ⸻
 

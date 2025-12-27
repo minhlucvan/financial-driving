@@ -258,10 +258,19 @@ function create ()
     // Create wealth HUD
     createWealthHUD(this);
 
+    // Create fog of war (historical vs future road)
+    createFogOfWar(this);
+
     // Restart key
     var RKey = this.input.keyboard.addKey('R');
     RKey.on('down', function () {
         restartGame(this);
+    }, this);
+
+    // Fog of war toggle: V key
+    var vKey = this.input.keyboard.addKey('V');
+    vKey.on('down', function () {
+        toggleFogOfWar();
     }, this);
 
     // Financial position controls
@@ -426,7 +435,7 @@ function createMarketHUD(scene) {
         padding: { x: 8, y: 4 }
     }).setScrollFactor(0).setDepth(1000);
 
-    scene.add.text(16, screen_height - 30, 'R: Restart | N: Dataset | F: Fullscreen', {
+    scene.add.text(16, screen_height - 30, 'R: Restart | N: Dataset | V: Fog | F: Fullscreen', {
         fontFamily: 'monospace',
         fontSize: '11px',
         color: '#666666',
@@ -534,6 +543,189 @@ function updateHUDRegime() {
         marketHUD.value.header.setColor(data.value.color);
         marketHUD.value.header.setText('VALUE [' + data.value.label + ']');
     }
+}
+
+// ============================================
+// FOG OF WAR - Historical vs Future Road
+// ============================================
+// Historical road (behind car): 100% visible - you've driven it
+// Future road (ahead of car): 50% opacity - uncertain projection
+// "You cannot see future road. Fog-of-war beyond current candle."
+
+var fogOfWar = null;
+
+/**
+ * Create fog of war overlay for future terrain
+ * The fog starts at the car's position and extends forward
+ */
+function createFogOfWar(scene) {
+    fogOfWar = {
+        // Main fog graphics (covers future terrain)
+        fogGraphics: null,
+        // Gradient overlay for smooth transition
+        gradientGraphics: null,
+        // "NOW" marker at car position
+        nowMarker: null,
+        nowText: null,
+        // Future projection indicator
+        projectionText: null,
+        // Settings
+        fogWidth: 2000,       // How far ahead the fog extends
+        gradientWidth: 200,   // Width of the transition zone
+        fogOpacity: 0.5,      // 50% opacity for future
+        enabled: true
+    };
+
+    // Create fog rectangle (will follow camera)
+    fogOfWar.fogGraphics = scene.add.graphics();
+    fogOfWar.fogGraphics.setDepth(500); // Above terrain, below HUD
+
+    // Create gradient transition
+    fogOfWar.gradientGraphics = scene.add.graphics();
+    fogOfWar.gradientGraphics.setDepth(499);
+
+    // "NOW" vertical line marker
+    fogOfWar.nowMarker = scene.add.graphics();
+    fogOfWar.nowMarker.setDepth(501);
+
+    // "NOW" text label
+    fogOfWar.nowText = scene.add.text(0, 50, 'NOW', {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        fontStyle: 'bold',
+        color: '#ffff00',
+        backgroundColor: '#000000cc',
+        padding: { x: 6, y: 3 }
+    }).setOrigin(0.5, 0).setDepth(502);
+
+    // Future projection text (shows expected conditions)
+    fogOfWar.projectionText = scene.add.text(0, 80, 'FUTURE: Uncertain', {
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        color: '#888888',
+        backgroundColor: '#00000088',
+        padding: { x: 4, y: 2 }
+    }).setOrigin(0, 0).setDepth(502);
+}
+
+/**
+ * Update fog of war position based on car location
+ * The fog follows the car, always obscuring terrain ahead
+ */
+function updateFogOfWar(scene) {
+    if (!fogOfWar || !fogOfWar.enabled || !vehicle || !vehicle.mainBody) return;
+
+    const carX = vehicle.mainBody.x;
+    const carY = vehicle.mainBody.y;
+    const camera = scene.cameras.main;
+
+    // Clear previous drawings
+    fogOfWar.fogGraphics.clear();
+    fogOfWar.gradientGraphics.clear();
+    fogOfWar.nowMarker.clear();
+
+    // Calculate fog area (ahead of car)
+    const fogStartX = carX + 50; // Small gap after car
+    const fogEndX = fogStartX + fogOfWar.fogWidth;
+    const fogTop = camera.scrollY - 200;
+    const fogBottom = camera.scrollY + screen_height + 200;
+
+    // Draw gradient transition zone (transparent to fog)
+    const gradientSteps = 20;
+    for (let i = 0; i < gradientSteps; i++) {
+        const progress = i / gradientSteps;
+        const alpha = progress * fogOfWar.fogOpacity;
+        const stepX = carX + progress * fogOfWar.gradientWidth;
+        const stepWidth = fogOfWar.gradientWidth / gradientSteps;
+
+        fogOfWar.gradientGraphics.fillStyle(0x1a1a2e, alpha);
+        fogOfWar.gradientGraphics.fillRect(stepX, fogTop, stepWidth + 1, fogBottom - fogTop);
+    }
+
+    // Draw main fog area (solid 50% opacity)
+    fogOfWar.fogGraphics.fillStyle(0x1a1a2e, fogOfWar.fogOpacity);
+    fogOfWar.fogGraphics.fillRect(
+        carX + fogOfWar.gradientWidth,
+        fogTop,
+        fogOfWar.fogWidth,
+        fogBottom - fogTop
+    );
+
+    // Draw "NOW" vertical line at car position
+    fogOfWar.nowMarker.lineStyle(3, 0xffff00, 0.8);
+    fogOfWar.nowMarker.lineBetween(carX, fogTop, carX, fogBottom);
+
+    // Add some decorative dashes
+    fogOfWar.nowMarker.lineStyle(1, 0xffff00, 0.4);
+    for (let y = fogTop; y < fogBottom; y += 40) {
+        fogOfWar.nowMarker.lineBetween(carX - 10, y, carX + 10, y);
+    }
+
+    // Update NOW text position
+    fogOfWar.nowText.setPosition(carX, camera.scrollY + 50);
+
+    // Update future projection text
+    updateFutureProjection(carX, camera.scrollY);
+}
+
+/**
+ * Update future projection indicator based on current market conditions
+ * Shows what the market "might" do based on current indicators
+ */
+function updateFutureProjection(carX, cameraY) {
+    if (!fogOfWar || !fogOfWar.projectionText || !marketIndicators) return;
+
+    const indicators = marketIndicators.indicators;
+    const volatility = indicators.volatility.label;
+    const momentum = indicators.momentum.label;
+
+    // Build projection string based on current conditions
+    let projectionStr = 'AHEAD: ';
+    let projectionColor = '#888888';
+
+    // Trend-based projection
+    if (momentum === 'BULLISH' || momentum === 'OVERBOUGHT') {
+        projectionStr += '↗ Likely uphill';
+        projectionColor = '#88ff88';
+    } else if (momentum === 'BEARISH' || momentum === 'OVERSOLD') {
+        projectionStr += '↘ Likely downhill';
+        projectionColor = '#ff8888';
+    } else {
+        projectionStr += '→ Uncertain path';
+        projectionColor = '#ffff88';
+    }
+
+    // Add volatility warning
+    if (volatility === 'HIGH' || volatility === 'EXTREME') {
+        projectionStr += ' | ⚠ ROUGH ROAD';
+        projectionColor = '#ffaa44';
+    }
+
+    fogOfWar.projectionText.setText(projectionStr);
+    fogOfWar.projectionText.setColor(projectionColor);
+    fogOfWar.projectionText.setPosition(carX + 60, cameraY + 80);
+}
+
+/**
+ * Toggle fog of war on/off
+ */
+function toggleFogOfWar() {
+    if (!fogOfWar) return;
+
+    fogOfWar.enabled = !fogOfWar.enabled;
+
+    if (!fogOfWar.enabled) {
+        fogOfWar.fogGraphics.clear();
+        fogOfWar.gradientGraphics.clear();
+        fogOfWar.nowMarker.clear();
+        fogOfWar.nowText.setVisible(false);
+        fogOfWar.projectionText.setVisible(false);
+    } else {
+        fogOfWar.nowText.setVisible(true);
+        fogOfWar.projectionText.setVisible(true);
+    }
+
+    console.log('Fog of War:', fogOfWar.enabled ? 'ON' : 'OFF');
 }
 
 /**
@@ -1330,6 +1522,9 @@ function update()
 
         // Update wealth HUD
         updateWealthHUD();
+
+        // Update fog of war (historical vs future road)
+        updateFogOfWar(this);
 
         // Check for game end
         if (wealthEngine.gameResult) {
