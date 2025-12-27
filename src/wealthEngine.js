@@ -59,8 +59,24 @@ class WealthEngine {
         this.stress = 0;
         this.maxStress = 100;
 
+        // === WATER LEVEL (Baseline Interest) ===
+        // The water represents what your money SHOULD be worth
+        // if it just grew at the baseline rate (inflation + risk-free rate)
+        // You must beat this to have REAL gains!
+        this.baselineRate = config.baselineRate || 0.0003; // ~7.5% annual (0.03% per day)
+        this.waterLevel = this.startingWealth; // Starts at same level as wealth
+        this.waterRiseSpeed = 1.0; // Multiplier for water rise speed
+
+        // How far above/below water you are (for visual positioning)
+        this.waterMargin = 0; // positive = above water, negative = drowning
+
+        // Grace period before drowning kills you (in ticks)
+        this.drowningTimer = 0;
+        this.maxDrowningTime = 60; // ~1 second at 60fps before game over
+
         // History for charts
         this.wealthHistory = [this.wealth];
+        this.waterHistory = [this.waterLevel];
         this.maxHistoryLength = 200;
 
         // Statistics
@@ -233,6 +249,12 @@ class WealthEngine {
                     subtitle: 'Too much volatility broke your strategy.',
                     lesson: 'Even good positions fail under extreme stress.'
                 };
+            case 'drowned':
+                return {
+                    title: 'DROWNED!',
+                    subtitle: 'The rising tide of inflation consumed you.',
+                    lesson: 'Your returns must beat the baseline. Standing still is sinking.'
+                };
             case 'bankrupt':
                 return {
                     title: 'BANKRUPT!',
@@ -328,6 +350,28 @@ class WealthEngine {
             this.wealthHistory.shift();
         }
 
+        // === WATER LEVEL RISES (Baseline Interest) ===
+        // The water always rises - this is the minimum return you need to beat
+        this.waterLevel *= (1 + this.baselineRate * this.waterRiseSpeed);
+
+        // Record water history
+        this.waterHistory.push(this.waterLevel);
+        if (this.waterHistory.length > this.maxHistoryLength) {
+            this.waterHistory.shift();
+        }
+
+        // Calculate margin (how far above/below water)
+        this.waterMargin = this.wealth - this.waterLevel;
+
+        // Check drowning status
+        if (this.waterMargin < 0) {
+            // Below water - drowning!
+            this.drowningTimer++;
+        } else {
+            // Above water - reset drowning timer
+            this.drowningTimer = Math.max(0, this.drowningTimer - 2);
+        }
+
         // Check win/lose conditions
         this.checkGameState();
 
@@ -353,7 +397,43 @@ class WealthEngine {
             return 'bankrupt';
         }
 
+        // Defeat: Drowned (below water too long)
+        if (this.drowningTimer >= this.maxDrowningTime) {
+            this.isRunning = false;
+            this.gameResult = 'drowned';
+            return 'drowned';
+        }
+
         return null;
+    }
+
+    /**
+     * Check if currently drowning (below water level)
+     */
+    isDrowning() {
+        return this.waterMargin < 0;
+    }
+
+    /**
+     * Get drowning progress (0-1, 1 = about to drown)
+     */
+    getDrowningProgress() {
+        return Math.min(1, this.drowningTimer / this.maxDrowningTime);
+    }
+
+    /**
+     * Get water level percentage relative to wealth
+     */
+    getWaterPercentage() {
+        if (this.wealth <= 0) return 100;
+        return (this.waterLevel / this.wealth) * 100;
+    }
+
+    /**
+     * Get real return (return above water/baseline)
+     */
+    getRealReturn() {
+        return ((this.wealth / this.waterLevel) - 1) * 100;
     }
 
     /**
@@ -432,7 +512,11 @@ class WealthEngine {
             cagr: this.getCAGR(),
             leverage: this.leverage,
             cashBuffer: this.cashBuffer,
-            crashes: this.crashes
+            crashes: this.crashes,
+            // Water level stats
+            waterLevel: this.waterLevel,
+            realReturn: this.getRealReturn(),
+            aboveWater: this.waterMargin > 0
         };
     }
 
@@ -457,6 +541,12 @@ class WealthEngine {
         this.cashBuffer = config.cashBuffer || 0.2;
         this.stability = 1.0;
         this.stress = 0;
+
+        // Reset water level
+        this.waterLevel = this.startingWealth;
+        this.waterMargin = 0;
+        this.drowningTimer = 0;
+        this.waterHistory = [this.waterLevel];
 
         this.stats = {
             maxWealth: this.wealth,

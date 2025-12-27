@@ -520,10 +520,14 @@ function createWealthHUD(scene) {
         container: null,
         progressBar: null,
         progressFill: null,
+        waterBar: null,
+        waterFill: null,
         wealthText: null,
         targetText: null,
         drawdownText: null,
         leverageText: null,
+        waterText: null,
+        drowningWarning: null,
         stressBar: null,
         stressFill: null
     };
@@ -561,8 +565,38 @@ function createWealthHUD(scene) {
         padding: { x: 6, y: 3 }
     }).setScrollFactor(0).setDepth(1001);
 
-    // Stats row
-    wealthHUD.drawdownText = scene.add.text(16, hudY + 68, 'DD: 0% | Days: 0', {
+    // === WATER LEVEL INDICATOR ===
+    // Water bar background (below progress bar)
+    wealthHUD.waterBar = scene.add.graphics();
+    wealthHUD.waterBar.setScrollFactor(0).setDepth(1001);
+    wealthHUD.waterBar.fillStyle(0x1a3a5c, 0.8);
+    wealthHUD.waterBar.fillRoundedRect(16, hudY + 64, barWidth, 12, 3);
+
+    // Water level fill (shows baseline rising)
+    wealthHUD.waterFill = scene.add.graphics();
+    wealthHUD.waterFill.setScrollFactor(0).setDepth(1002);
+
+    // Water level text
+    wealthHUD.waterText = scene.add.text(16 + barWidth + 10, hudY + 62, 'Water: $10K', {
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        color: '#4488cc',
+        backgroundColor: '#000000aa',
+        padding: { x: 4, y: 2 }
+    }).setScrollFactor(0).setDepth(1001);
+
+    // Drowning warning (hidden by default)
+    wealthHUD.drowningWarning = scene.add.text(screen_width / 2, hudY + 30, 'DROWNING!', {
+        fontFamily: 'monospace',
+        fontSize: '28px',
+        fontStyle: 'bold',
+        color: '#ff0000',
+        backgroundColor: '#000000cc',
+        padding: { x: 20, y: 8 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(1100).setVisible(false);
+
+    // Stats row (moved down)
+    wealthHUD.drawdownText = scene.add.text(16, hudY + 82, 'DD: 0% | Days: 0', {
         fontFamily: 'monospace',
         fontSize: '12px',
         color: '#aaaaaa',
@@ -571,7 +605,7 @@ function createWealthHUD(scene) {
     }).setScrollFactor(0).setDepth(1001);
 
     // Leverage and stability display
-    wealthHUD.leverageText = scene.add.text(16, hudY + 92, 'Leverage: 1.0x | Stability: 100%', {
+    wealthHUD.leverageText = scene.add.text(16, hudY + 106, 'Leverage: 1.0x | Stability: 100%', {
         fontFamily: 'monospace',
         fontSize: '12px',
         color: '#88aaff',
@@ -583,21 +617,21 @@ function createWealthHUD(scene) {
     wealthHUD.stressBar = scene.add.graphics();
     wealthHUD.stressBar.setScrollFactor(0).setDepth(1001);
     wealthHUD.stressBar.fillStyle(0x333333, 0.7);
-    wealthHUD.stressBar.fillRoundedRect(16, hudY + 116, 120, 8, 2);
+    wealthHUD.stressBar.fillRoundedRect(16, hudY + 130, 120, 8, 2);
 
     // Stress bar fill
     wealthHUD.stressFill = scene.add.graphics();
     wealthHUD.stressFill.setScrollFactor(0).setDepth(1002);
 
     // Stress label
-    scene.add.text(140, hudY + 113, 'STRESS', {
+    scene.add.text(140, hudY + 127, 'STRESS', {
         fontFamily: 'monospace',
         fontSize: '10px',
         color: '#666666'
     }).setScrollFactor(0).setDepth(1001);
 
     // Goal label
-    scene.add.text(16, hudY + 130, 'GOAL: FINANCIAL FREEDOM', {
+    scene.add.text(16, hudY + 144, 'GOAL: FINANCIAL FREEDOM (Stay above water!)', {
         fontFamily: 'monospace',
         fontSize: '10px',
         color: '#888888',
@@ -673,7 +707,64 @@ function updateWealthHUD() {
     else if (stressPercent > 0.2) stressColor = 0xFFC107; // Yellow - caution
 
     wealthHUD.stressFill.fillStyle(stressColor, 1);
-    wealthHUD.stressFill.fillRoundedRect(16, 201, stressWidth, 8, 2);
+    wealthHUD.stressFill.fillRoundedRect(16, 215, stressWidth, 8, 2);
+
+    // === UPDATE WATER LEVEL ===
+    const hudY = 85;
+    const waterBarWidth = 250;
+
+    // Calculate water level as percentage of wealth (capped at 100%)
+    const waterPercent = Math.min(100, wealthEngine.getWaterPercentage());
+    const waterFillWidth = (waterPercent / 100) * waterBarWidth;
+
+    wealthHUD.waterFill.clear();
+
+    // Water color: blue normally, red when above wealth
+    let waterColor = 0x2288cc; // Normal blue
+    if (wealthEngine.isDrowning()) {
+        // Flashing red when drowning
+        const flash = Math.sin(Date.now() / 100) > 0;
+        waterColor = flash ? 0xff4444 : 0xcc2222;
+    } else if (waterPercent > 80) {
+        waterColor = 0xcc8822; // Warning orange - getting close
+    }
+
+    wealthHUD.waterFill.fillStyle(waterColor, 0.9);
+    wealthHUD.waterFill.fillRoundedRect(16, hudY + 64, waterFillWidth, 12, 3);
+
+    // Update water text
+    const waterDisplay = wealthEngine.waterLevel >= 1000
+        ? '$' + (wealthEngine.waterLevel / 1000).toFixed(1) + 'K'
+        : '$' + Math.floor(wealthEngine.waterLevel);
+    const realReturn = wealthEngine.getRealReturn();
+    const realReturnStr = realReturn >= 0 ? '+' + realReturn.toFixed(1) : realReturn.toFixed(1);
+    wealthHUD.waterText.setText('Water: ' + waterDisplay + ' | Real: ' + realReturnStr + '%');
+
+    // Color water text
+    if (realReturn < 0) {
+        wealthHUD.waterText.setColor('#ff6666'); // Red - below water
+    } else if (realReturn < 5) {
+        wealthHUD.waterText.setColor('#ffaa66'); // Orange - barely above
+    } else {
+        wealthHUD.waterText.setColor('#66ccff'); // Blue - safely above
+    }
+
+    // === DROWNING WARNING ===
+    if (wealthEngine.isDrowning()) {
+        const drowningProgress = wealthEngine.getDrowningProgress();
+        wealthHUD.drowningWarning.setVisible(true);
+
+        // Flashing effect with increasing urgency
+        const flashRate = 50 + (1 - drowningProgress) * 150; // Faster as drowning progresses
+        const flash = Math.sin(Date.now() / flashRate) > 0;
+        wealthHUD.drowningWarning.setAlpha(flash ? 1 : 0.5);
+
+        // Update text with countdown
+        const timeLeft = Math.ceil((1 - drowningProgress) * (wealthEngine.maxDrowningTime / 60));
+        wealthHUD.drowningWarning.setText('DROWNING! ' + timeLeft + 's');
+    } else {
+        wealthHUD.drowningWarning.setVisible(false);
+    }
 }
 
 /**
@@ -695,6 +786,7 @@ function showGameOverScreen(scene, result) {
     else if (result === 'margin_call') overlayColor = 0x440044; // Purple
     else if (result === 'crash_flip') overlayColor = 0x442200; // Orange
     else if (result === 'crash_stress') overlayColor = 0x444400; // Yellow
+    else if (result === 'drowned') overlayColor = 0x002244; // Deep blue
 
     gameOverScreen.overlay = scene.add.rectangle(
         screen_width / 2, screen_height / 2,
@@ -736,18 +828,21 @@ function showGameOverScreen(scene, result) {
 
     // Stats panel
     const statsY = isVictory ? 160 : 180;
+    const realReturnStr = summary.realReturn >= 0 ? '+' + summary.realReturn.toFixed(1) : summary.realReturn.toFixed(1);
+    const waterLevelDisplay = summary.waterLevel >= 1000
+        ? '$' + (summary.waterLevel / 1000).toFixed(1) + 'K'
+        : '$' + Math.floor(summary.waterLevel);
+
     const stats = [
         'Final Wealth: ' + wealthEngine.getWealthDisplay(),
-        'Starting: $' + summary.startingWealth.toLocaleString(),
-        'Progress: ' + summary.progress.toFixed(1) + '%',
+        'Water Level: ' + waterLevelDisplay,
+        'Real Return: ' + realReturnStr + '% ' + (summary.aboveWater ? '(Above Water)' : '(DROWNED)'),
         '',
         'Days Traded: ' + summary.daysTraded,
         'Peak Wealth: $' + Math.floor(summary.peakWealth).toLocaleString(),
         'Max Drawdown: ' + summary.maxDrawdown.toFixed(1) + '%',
         '',
         'Leverage: ' + summary.leverage.toFixed(1) + 'x',
-        'Cash Buffer: ' + (summary.cashBuffer * 100).toFixed(0) + '%',
-        '',
         'Total Gains: $' + Math.floor(summary.totalGains).toLocaleString(),
         'Total Losses: $' + Math.floor(summary.totalLosses).toLocaleString()
     ];
