@@ -560,7 +560,9 @@ function createWealthHUD(scene) {
         liquidationBar: null,
         liquidationFill: null,
         liquidationText: null,
-        liquidationWarning: null
+        liquidationWarning: null,
+        // Recovery asymmetry display
+        recoveryText: null
     };
 
     const hudY = 85;
@@ -702,6 +704,17 @@ function createWealthHUD(scene) {
         fontFamily: 'monospace',
         fontSize: '11px',
         color: '#66aaff',
+        backgroundColor: '#000000aa',
+        padding: { x: 6, y: 3 }
+    }).setScrollFactor(0).setDepth(1001);
+
+    // === RECOVERY ASYMMETRY DISPLAY ===
+    // Shows the L/(1-L) formula: how much gain is needed to recover from drawdown
+    // This teaches the core lesson: losses require disproportionate gains to recover
+    wealthHUD.recoveryText = scene.add.text(16, hudY + 200, 'AT PEAK (No recovery needed)', {
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        color: '#88ff88',
         backgroundColor: '#000000aa',
         padding: { x: 6, y: 3 }
     }).setScrollFactor(0).setDepth(1001);
@@ -929,6 +942,45 @@ function updateWealthHUD() {
         }
 
         wealthHUD.physicsText.setColor(physicsColor);
+    }
+
+    // === UPDATE RECOVERY ASYMMETRY DISPLAY ===
+    // Shows the L/(1-L) formula in action: how much gain needed to recover
+    if (wealthHUD.recoveryText && wealthEngine) {
+        const recovery = wealthEngine.getRecoveryInfo();
+
+        if (!recovery.inRecovery) {
+            // At peak - no recovery needed
+            wealthHUD.recoveryText.setText('AT PEAK ✓ (No recovery needed)');
+            wealthHUD.recoveryText.setColor('#88ff88');
+        } else {
+            // In drawdown - show recovery math
+            const ddStr = recovery.drawdownPercent.toFixed(1);
+            const recStr = recovery.recoveryNeeded.toFixed(1);
+            const multStr = recovery.recoveryMultiplier.toFixed(2);
+            const drag = wealthEngine.getRecoveryDrag();
+
+            let recoveryStr = 'DD: -' + ddStr + '% → Need +' + recStr + '% to recover';
+            recoveryStr += ' (' + recovery.difficultyLabel + ')';
+
+            // Show drag if significant
+            if (drag > 1.05) {
+                recoveryStr += ' | Drag: ' + drag.toFixed(2) + 'x';
+            }
+
+            wealthHUD.recoveryText.setText(recoveryStr);
+
+            // Color based on recovery difficulty
+            if (recovery.recoveryNeeded > 100) {
+                wealthHUD.recoveryText.setColor('#ff4444'); // Red - brutal
+            } else if (recovery.recoveryNeeded > 50) {
+                wealthHUD.recoveryText.setColor('#ff8844'); // Orange - hard
+            } else if (recovery.recoveryNeeded > 25) {
+                wealthHUD.recoveryText.setColor('#ffcc44'); // Yellow - moderate
+            } else {
+                wealthHUD.recoveryText.setColor('#aaff44'); // Light green - easy
+            }
+        }
     }
 }
 
@@ -1173,8 +1225,13 @@ function applyFinancialPhysics(scene) {
     const cashBuffer = wealthEngine.cashBuffer;
     const volatility = getCurrentVolatility();
 
-    // Update vehicle physics modifiers
-    vehicle.updateFinancialPhysics(leverage, cashBuffer, volatility);
+    // === GAIN-LOSS ASYMMETRY: Recovery Drag ===
+    // When in drawdown, climbing back is physically harder
+    // This makes the L/(1-L) formula FELT through the car
+    const recoveryDrag = wealthEngine.getRecoveryDrag();
+
+    // Update vehicle physics modifiers (including recovery drag)
+    vehicle.updateFinancialPhysics(leverage, cashBuffer, volatility, recoveryDrag);
 
     // Apply volatility shake to car (simulates rough road)
     vehicle.applyVolatilityShake(volatility);

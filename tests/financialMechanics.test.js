@@ -402,6 +402,78 @@ function testMarketIndicators(runner) {
 }
 
 // ============================================
+// GAIN-LOSS ASYMMETRY TESTS
+// ============================================
+function testGainLossAsymmetry(runner) {
+    console.log('\n=== Gain-Loss Asymmetry Tests ===\n');
+
+    const engine = new WealthEngine({ startingWealth: 10000 });
+
+    // Test 1: Recovery formula L/(1-L) - 20% loss needs 25% gain
+    const recovery20 = engine.calculateRecoveryNeeded(0.20);
+    runner.assertApprox(recovery20, 0.25, 0.01, '20% loss needs 25% gain to recover');
+
+    // Test 2: 50% loss needs 100% gain
+    const recovery50 = engine.calculateRecoveryNeeded(0.50);
+    runner.assertApprox(recovery50, 1.00, 0.01, '50% loss needs 100% gain to recover');
+
+    // Test 3: 90% loss needs 900% gain
+    const recovery90 = engine.calculateRecoveryNeeded(0.90);
+    runner.assertApprox(recovery90, 9.00, 0.1, '90% loss needs 900% gain to recover');
+
+    // Test 4: No loss = no recovery needed
+    const recovery0 = engine.calculateRecoveryNeeded(0);
+    runner.assert(recovery0 === 0, 'No loss = no recovery needed');
+
+    // Test 5: Recovery info when at peak
+    engine.wealth = 10000;
+    engine.peakWealth = 10000;
+    const infoAtPeak = engine.getRecoveryInfo();
+    runner.assert(!infoAtPeak.inRecovery, 'At peak: not in recovery mode');
+    runner.assert(infoAtPeak.difficultyLabel === 'AT PEAK', 'At peak: label is AT PEAK');
+
+    // Test 6: Recovery info when in drawdown
+    engine.wealth = 7000;
+    engine.peakWealth = 10000;
+    const infoDrawdown = engine.getRecoveryInfo();
+    runner.assert(infoDrawdown.inRecovery, 'In 30% drawdown: in recovery mode');
+    runner.assertApprox(infoDrawdown.drawdownPercent, 30, 0.1, 'Drawdown is 30%');
+    runner.assertApprox(infoDrawdown.recoveryNeeded, 42.86, 1, '30% drawdown needs ~42.86% to recover');
+    runner.assert(infoDrawdown.difficultyLabel === 'MODERATE', 'Difficulty is MODERATE');
+
+    // Test 7: Recovery drag increases with drawdown
+    engine.wealth = 5000; // 50% drawdown
+    engine.peakWealth = 10000;
+    const drag50 = engine.getRecoveryDrag();
+    runner.assert(drag50 > 1.0, '50% drawdown has recovery drag > 1');
+
+    engine.wealth = 8000; // 20% drawdown
+    const drag20 = engine.getRecoveryDrag();
+    runner.assert(drag50 > drag20, 'Larger drawdown = more recovery drag');
+
+    // Test 8: Loss aversion coefficient exists
+    runner.assertApprox(engine.lossAversionLambda, 2.25, 0.01, 'Loss aversion λ = 2.25 (Kahneman-Tversky)');
+
+    // Test 9: Loss aversion applies to stress
+    const engineStress1 = new WealthEngine({ startingWealth: 10000 });
+    const engineStress2 = new WealthEngine({ startingWealth: 10000 });
+
+    // Simulate gains and losses
+    engineStress1.update(16, 5, 0);  // Positive slope (gain)
+    engineStress2.update(-16, 5, 0); // Negative slope (loss)
+
+    runner.assert(engineStress2.stress > engineStress1.stress,
+        'Losses accumulate more stress than gains reduce it (loss aversion)');
+
+    // Test 10: Brutal recovery difficulty label
+    engine.wealth = 1500; // 85% drawdown
+    engine.peakWealth = 10000;
+    const infoBrutal = engine.getRecoveryInfo();
+    runner.assert(infoBrutal.difficultyLabel === 'BRUTAL' || infoBrutal.difficultyLabel === 'NEARLY IMPOSSIBLE',
+        '85% drawdown is BRUTAL or NEARLY IMPOSSIBLE');
+}
+
+// ============================================
 // CRASH CONDITION TESTS
 // ============================================
 function testCrashConditions(runner) {
@@ -505,6 +577,7 @@ function runAllTests() {
         testWealthEngineUpdates(runner);
         testVehicleFinancialPhysics(runner);
         testMarketIndicators(runner);
+        testGainLossAsymmetry(runner);  // NEW: Core financial law tests
         testCrashConditions(runner);
         testProgressAndStats(runner);
     } catch (error) {

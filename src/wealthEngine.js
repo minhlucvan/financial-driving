@@ -57,6 +57,24 @@ class WealthEngine {
         // We add a 10% buffer so margin call triggers slightly before total wipeout
         this.marginCallBuffer = 0.10; // 10% safety buffer before actual wipeout
 
+        // === GAIN-LOSS ASYMMETRY (Core Financial Truth) ===
+        //
+        // MATHEMATICAL LAW: A loss of L% requires a gain of L/(1-L)% to recover
+        //   -20% loss → need +25% gain to recover
+        //   -50% loss → need +100% gain to recover (!)
+        //   -90% loss → need +900% gain to recover (!!)
+        //
+        // PSYCHOLOGICAL LAW (Prospect Theory / Kahneman-Tversky):
+        //   Losses are felt ~2.25x more intensely than equivalent gains
+        //   λ ≈ 2.25 (loss aversion coefficient)
+        //
+        // This asymmetry is WHY drawdown control dominates long-term performance.
+        this.lossAversionLambda = 2.25; // Kahneman-Tversky empirical value
+
+        // Track recovery state
+        this.inRecoveryMode = false;  // True when in drawdown
+        this.recoveryTarget = 0;      // The gain % needed to recover
+
         // Liquidation proximity (0 = safe, 1 = margin call imminent)
         this.liquidationProximity = 0;
 
@@ -176,6 +194,121 @@ class WealthEngine {
      */
     reduceStress(amount) {
         this.stress = Math.max(0, this.stress - amount);
+    }
+
+    // ========================================
+    // GAIN-LOSS ASYMMETRY METHODS
+    // ========================================
+
+    /**
+     * Calculate the gain required to recover from a loss (Mathematical Law)
+     *
+     * Formula: Recovery% = L / (1 - L)
+     *
+     * Examples:
+     *   -10% loss → need +11.1% to recover
+     *   -20% loss → need +25% to recover
+     *   -50% loss → need +100% to recover
+     *   -90% loss → need +900% to recover
+     *
+     * @param {number} lossPercent - Loss as decimal (0.20 = 20% loss)
+     * @returns {number} Required gain as decimal
+     */
+    calculateRecoveryNeeded(lossPercent) {
+        if (lossPercent <= 0) return 0;
+        if (lossPercent >= 1) return Infinity;
+        return lossPercent / (1 - lossPercent);
+    }
+
+    /**
+     * Get current recovery needed to reach peak wealth
+     * @returns {Object} Recovery info with percentage and multiplier
+     */
+    getRecoveryInfo() {
+        const drawdown = this.getDrawdown() / 100; // Convert to decimal
+
+        if (drawdown <= 0) {
+            this.inRecoveryMode = false;
+            this.recoveryTarget = 0;
+            return {
+                inRecovery: false,
+                drawdownPercent: 0,
+                recoveryNeeded: 0,
+                recoveryMultiplier: 1,
+                difficultyLabel: 'AT PEAK'
+            };
+        }
+
+        this.inRecoveryMode = true;
+        const recoveryNeeded = this.calculateRecoveryNeeded(drawdown);
+        this.recoveryTarget = recoveryNeeded * 100;
+
+        // The "multiplier" shows how much harder recovery is than the loss
+        // e.g., 50% loss needs 100% gain = 2x harder
+        const multiplier = recoveryNeeded / drawdown;
+
+        // Label the difficulty
+        let difficultyLabel = 'EASY';
+        if (recoveryNeeded > 0.5) difficultyLabel = 'MODERATE';
+        if (recoveryNeeded > 1.0) difficultyLabel = 'HARD';
+        if (recoveryNeeded > 2.0) difficultyLabel = 'BRUTAL';
+        if (recoveryNeeded > 5.0) difficultyLabel = 'NEARLY IMPOSSIBLE';
+
+        return {
+            inRecovery: true,
+            drawdownPercent: drawdown * 100,
+            recoveryNeeded: recoveryNeeded * 100,
+            recoveryMultiplier: multiplier,
+            difficultyLabel: difficultyLabel
+        };
+    }
+
+    /**
+     * Apply loss aversion weighting to a value change (Psychological Law)
+     *
+     * Prospect Theory value function (simplified):
+     *   v(x) = x^α           if x >= 0 (gains)
+     *   v(x) = -λ|x|^α       if x < 0  (losses)
+     *
+     * With λ ≈ 2.25, losses FEEL 2.25x more painful than equivalent gains feel good
+     *
+     * @param {number} change - The raw wealth change
+     * @returns {number} The "felt" psychological impact
+     */
+    applyLossAversion(change) {
+        const alpha = 0.88; // Risk aversion parameter (empirical)
+
+        if (change >= 0) {
+            // Gains: diminishing sensitivity
+            return Math.pow(change, alpha);
+        } else {
+            // Losses: amplified by lambda, diminishing sensitivity
+            return -this.lossAversionLambda * Math.pow(Math.abs(change), alpha);
+        }
+    }
+
+    /**
+     * Get the "recovery drag" - how much harder the climb feels when in drawdown
+     *
+     * This simulates the PHYSICAL feeling that:
+     * - Falling is fast (gravity helps)
+     * - Climbing back is slow (fighting gravity)
+     *
+     * Used to modify car physics in recovery mode.
+     *
+     * @returns {number} Drag multiplier (1.0 = normal, >1 = harder to accelerate)
+     */
+    getRecoveryDrag() {
+        if (!this.inRecoveryMode) return 1.0;
+
+        const recovery = this.getRecoveryInfo();
+
+        // The further into drawdown, the harder to climb back
+        // At 50% drawdown (needs 100% recovery), drag = 1.5x
+        // At 90% drawdown (needs 900% recovery), drag = 2.0x (capped)
+        const drag = 1.0 + (recovery.recoveryMultiplier - 1) * 0.25;
+
+        return Math.min(2.0, Math.max(1.0, drag));
     }
 
     /**
@@ -368,17 +501,29 @@ class WealthEngine {
         // Calculate total change
         const wealthChange = (this.wealth * dailyReturn) + passiveGain;
 
-        // Add stress from volatility and negative returns
+        // === APPLY LOSS AVERSION TO STRESS (Prospect Theory) ===
+        // Losses create ~2.25x more stress than gains reduce it
+        // This makes drawdowns FEEL much worse than gains feel good
+
         if (volatility > 0.3) {
             this.addStress(volatility * 2);
         }
+
         if (normalizedSlope < -0.3) {
-            this.addStress(Math.abs(normalizedSlope) * 3);
+            // LOSSES: Apply loss aversion - stress accumulates faster
+            const rawStress = Math.abs(normalizedSlope) * 3;
+            const aversionStress = rawStress * this.lossAversionLambda; // 2.25x more painful
+            this.addStress(aversionStress);
         }
+
         // Reduce stress slowly during calm periods
+        // NOTE: Stress reduction is NOT amplified - gains feel normal, losses feel amplified
         if (volatility < 0.2 && normalizedSlope > 0) {
-            this.reduceStress(0.5);
+            this.reduceStress(0.5); // Normal rate, not amplified
         }
+
+        // Update recovery tracking
+        this.getRecoveryInfo();
 
         // Track gains/losses
         if (wealthChange > 0) {
@@ -587,7 +732,10 @@ class WealthEngine {
             aboveWater: this.waterMargin > 0,
             // Margin call stats
             maxSafeDrawdown: this.getMaxSafeDrawdown() * 100,
-            liquidationProximity: this.liquidationProximity
+            liquidationProximity: this.liquidationProximity,
+            // Recovery asymmetry stats
+            recoveryInfo: this.getRecoveryInfo(),
+            lossAversionLambda: this.lossAversionLambda
         };
     }
 
@@ -613,6 +761,10 @@ class WealthEngine {
         this.stability = 1.0;
         this.stress = 0;
         this.liquidationProximity = 0;
+
+        // Reset recovery tracking
+        this.inRecoveryMode = false;
+        this.recoveryTarget = 0;
 
         // Reset water level
         this.waterLevel = this.startingWealth;

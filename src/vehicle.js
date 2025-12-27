@@ -63,14 +63,24 @@ class Vehicle
      * @param {number} leverage - Current leverage (1.0 = normal, 2.0 = 2x, etc.)
      * @param {number} cashBuffer - Cash buffer percentage (0-1, higher = more brake power)
      * @param {number} volatility - Market volatility (0-1, higher = worse traction)
+     * @param {number} recoveryDrag - Drag from being in drawdown (1.0 = normal, >1 = harder)
      */
-    updateFinancialPhysics(leverage, cashBuffer, volatility) {
+    updateFinancialPhysics(leverage, cashBuffer, volatility, recoveryDrag = 1.0) {
         // === LEVERAGE → TORQUE ===
         // Higher leverage = more power, but with diminishing returns above 2x
         // Formula: 0.8 + (leverage * 0.4) gives range 1.0 to 2.0 for 0.5x to 3x leverage
         this.torqueMultiplier = 0.8 + (leverage * 0.4);
         // Cap at 2.0x to prevent insane acceleration
         this.torqueMultiplier = Math.min(2.0, this.torqueMultiplier);
+
+        // === RECOVERY DRAG → REDUCED TORQUE ===
+        // When in drawdown, climbing back is HARDER (mathematical asymmetry)
+        // This simulates the L/(1-L) recovery formula physically:
+        // - 50% drawdown needs 100% recovery = 1.25x harder to accelerate
+        // - 90% drawdown needs 900% recovery = 2.0x harder (capped)
+        if (recoveryDrag > 1.0) {
+            this.torqueMultiplier /= recoveryDrag;
+        }
 
         // === CASH BUFFER → BRAKES ===
         // More cash = better braking (representing ability to stop/exit positions)
@@ -82,6 +92,9 @@ class Vehicle
         // 0 volatility = 1.0 traction, max volatility = 0.5 traction
         this.tractionMultiplier = 1.0 - (volatility * 0.5);
         this.tractionMultiplier = Math.max(0.5, this.tractionMultiplier);
+
+        // Store recovery drag for HUD display
+        this.recoveryDrag = recoveryDrag;
     }
 
     /**
@@ -91,7 +104,8 @@ class Vehicle
         return {
             torque: this.torqueMultiplier,
             brake: this.brakeMultiplier,
-            traction: this.tractionMultiplier
+            traction: this.tractionMultiplier,
+            recoveryDrag: this.recoveryDrag || 1.0
         };
     }
 
