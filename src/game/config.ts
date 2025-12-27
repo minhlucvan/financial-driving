@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import type { CarType } from './vector/svg-car';
 
 // Vehicle update data reported from game to React
 export interface VehicleUpdateData {
@@ -27,12 +28,14 @@ export interface GlobalGameState {
   onStateChange?: (state: 'playing' | 'victory' | 'bankrupt') => void;
   onReset?: () => void;
   vehicleKey: string;
+  carType: CarType;
   currentMarketDataKey: string;
   gameState: 'playing' | 'victory' | 'bankrupt';
 }
 
 export const globalGameState: GlobalGameState = {
   vehicleKey: 'car2',
+  carType: 'sedan',
   currentMarketDataKey: 'sp500',
   gameState: 'playing',
 };

@@ -1,19 +1,59 @@
 /**
- * SVG Car Generator
+ * SVG Car Sprites
  *
- * Generates dynamic SVG car sprites that reflect financial state.
- * The car visually responds to P&L, stress, leverage, and market conditions.
+ * Two distinct car designs with state-based visual variations.
+ * Cars reflect P&L, stress, and driving state through color and effects.
  */
 
 import type { CarPhysics } from '../../types';
 import { CAR_COLORS, UI_COLORS } from './styles';
 
-// Convert hex number to CSS color string
+// ============================================
+// CAR TYPES
+// ============================================
+
+export type CarType = 'sedan' | 'sports';
+
+export interface CarState {
+  pnlPercent: number;
+  carPhysics: CarPhysics;
+  isAccelerating: boolean;
+  isBraking: boolean;
+}
+
+export interface CarDefinition {
+  type: CarType;
+  name: string;
+  description: string;
+  width: number;
+  height: number;
+}
+
+export const CAR_DEFINITIONS: CarDefinition[] = [
+  {
+    type: 'sedan',
+    name: 'Steady Saver',
+    description: 'Balanced and reliable - good for steady growth',
+    width: 120,
+    height: 50,
+  },
+  {
+    type: 'sports',
+    name: 'Risk Racer',
+    description: 'Fast and agile - for aggressive strategies',
+    width: 130,
+    height: 45,
+  },
+];
+
+// ============================================
+// COLOR UTILITIES
+// ============================================
+
 function hexToCSS(hex: number): string {
   return `#${hex.toString(16).padStart(6, '0')}`;
 }
 
-// Interpolate between two colors
 function lerpColor(color1: number, color2: number, t: number): number {
   const r1 = (color1 >> 16) & 0xff;
   const g1 = (color1 >> 8) & 0xff;
@@ -30,263 +70,253 @@ function lerpColor(color1: number, color2: number, t: number): number {
   return (r << 16) | (g << 8) | b;
 }
 
-export interface CarSVGConfig {
-  width: number;
-  height: number;
-  pnlPercent: number;
-  carPhysics: CarPhysics;
-  isAccelerating: boolean;
-  isBraking: boolean;
+function getBodyColor(pnlPercent: number): number {
+  if (pnlPercent > 5) {
+    return lerpColor(CAR_COLORS.body.neutral, CAR_COLORS.body.profit, Math.min(1, pnlPercent / 20));
+  } else if (pnlPercent < -5) {
+    return lerpColor(CAR_COLORS.body.neutral, CAR_COLORS.body.loss, Math.min(1, Math.abs(pnlPercent) / 20));
+  }
+  return CAR_COLORS.body.neutral;
 }
 
-/**
- * Generate SVG string for the car based on current state
- */
-export function generateCarSVG(config: CarSVGConfig): string {
-  const { width, height, pnlPercent, carPhysics, isAccelerating, isBraking } = config;
+function getStressColor(temperature: number): number {
+  if (temperature > 0.7) return UI_COLORS.negative;
+  if (temperature > 0.4) return UI_COLORS.warning;
+  return UI_COLORS.positive;
+}
 
-  // Determine body color based on P&L
-  let bodyColor: number = CAR_COLORS.body.neutral;
-  if (pnlPercent > 5) {
-    bodyColor = lerpColor(CAR_COLORS.body.neutral, CAR_COLORS.body.profit, Math.min(1, pnlPercent / 20));
-  } else if (pnlPercent < -5) {
-    bodyColor = lerpColor(CAR_COLORS.body.neutral, CAR_COLORS.body.loss, Math.min(1, Math.abs(pnlPercent) / 20));
-  }
+// ============================================
+// SEDAN CAR SVG
+// ============================================
 
-  // Stress affects glow/warning indicators
-  const stressColor = carPhysics.engineTemperature > 0.7
-    ? UI_COLORS.negative
-    : carPhysics.engineTemperature > 0.4
-      ? UI_COLORS.warning
-      : UI_COLORS.positive;
+function generateSedanSVG(state: CarState): string {
+  const { pnlPercent, carPhysics, isAccelerating, isBraking } = state;
+  const width = 120;
+  const height = 50;
 
-  // Engine glow based on power
-  const engineGlow = isAccelerating ? 0.8 : 0.3;
-  const engineColor = carPhysics.engineTemperature > 0.6
-    ? UI_COLORS.negative
-    : UI_COLORS.warning;
-
-  // Brake glow
+  const bodyColor = getBodyColor(pnlPercent);
+  const stressColor = getStressColor(carPhysics.engineTemperature);
+  const bodyOpacity = 0.75 + carPhysics.durability * 0.25;
+  const engineGlow = isAccelerating ? 0.8 : 0.2;
   const brakeGlow = isBraking ? 0.9 : 0.2;
 
-  // Fuel indicator position (0-1)
-  const fuelLevel = carPhysics.fuelLevel;
-
-  // Durability affects opacity
-  const bodyOpacity = 0.7 + carPhysics.durability * 0.3;
-
-  const svg = `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
   <defs>
-    <!-- Body gradient -->
-    <linearGradient id="bodyGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:${hexToCSS(bodyColor)};stop-opacity:${bodyOpacity}" />
-      <stop offset="100%" style="stop-color:${hexToCSS(bodyColor)};stop-opacity:${bodyOpacity * 0.7}" />
+    <linearGradient id="sedanBody" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:${hexToCSS(bodyColor)};stop-opacity:${bodyOpacity}"/>
+      <stop offset="100%" style="stop-color:${hexToCSS(bodyColor)};stop-opacity:${bodyOpacity * 0.7}"/>
     </linearGradient>
-
-    <!-- Window gradient -->
-    <linearGradient id="windowGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:${hexToCSS(CAR_COLORS.window)};stop-opacity:0.9" />
-      <stop offset="100%" style="stop-color:${hexToCSS(CAR_COLORS.window)};stop-opacity:0.6" />
+    <linearGradient id="sedanWindow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:${hexToCSS(CAR_COLORS.window)};stop-opacity:0.9"/>
+      <stop offset="100%" style="stop-color:${hexToCSS(CAR_COLORS.window)};stop-opacity:0.5"/>
     </linearGradient>
-
-    <!-- Engine glow -->
-    <radialGradient id="engineGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" style="stop-color:${hexToCSS(engineColor)};stop-opacity:${engineGlow}" />
-      <stop offset="100%" style="stop-color:${hexToCSS(engineColor)};stop-opacity:0" />
-    </radialGradient>
-
-    <!-- Brake light glow -->
-    <radialGradient id="brakeGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" style="stop-color:${hexToCSS(UI_COLORS.negative)};stop-opacity:${brakeGlow}" />
-      <stop offset="100%" style="stop-color:${hexToCSS(UI_COLORS.negative)};stop-opacity:0" />
-    </radialGradient>
-
-    <!-- Stress indicator pulse -->
-    <radialGradient id="stressGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" style="stop-color:${hexToCSS(stressColor)};stop-opacity:${carPhysics.engineTemperature * 0.6}" />
-      <stop offset="100%" style="stop-color:${hexToCSS(stressColor)};stop-opacity:0" />
-    </radialGradient>
   </defs>
 
-  <!-- Car shadow -->
-  <ellipse cx="${width * 0.5}" cy="${height * 0.92}" rx="${width * 0.4}" ry="${height * 0.06}"
-           fill="#000" opacity="0.3" />
+  <!-- Shadow -->
+  <ellipse cx="60" cy="47" rx="50" ry="4" fill="#000" opacity="0.3"/>
 
-  <!-- Main body -->
-  <g id="carBody">
-    <!-- Lower body / chassis -->
-    <path d="M ${width * 0.1} ${height * 0.6}
-             L ${width * 0.15} ${height * 0.75}
-             L ${width * 0.85} ${height * 0.75}
-             L ${width * 0.9} ${height * 0.6}
-             L ${width * 0.85} ${height * 0.5}
-             L ${width * 0.15} ${height * 0.5}
-             Z"
-          fill="url(#bodyGradient)"
-          stroke="${hexToCSS(CAR_COLORS.outline)}"
-          stroke-width="2" />
+  <!-- Main Body -->
+  <path d="M 10 32 L 15 38 L 105 38 L 110 32 L 105 26 L 15 26 Z"
+        fill="url(#sedanBody)" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="2"/>
 
-    <!-- Upper body / cabin -->
-    <path d="M ${width * 0.22} ${height * 0.5}
-             L ${width * 0.28} ${height * 0.28}
-             L ${width * 0.72} ${height * 0.28}
-             L ${width * 0.78} ${height * 0.5}
-             Z"
-          fill="url(#bodyGradient)"
-          stroke="${hexToCSS(CAR_COLORS.outline)}"
-          stroke-width="2" />
+  <!-- Cabin -->
+  <path d="M 30 26 L 38 14 L 82 14 L 90 26 Z"
+        fill="url(#sedanBody)" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="2"/>
 
-    <!-- Windshield -->
-    <path d="M ${width * 0.3} ${height * 0.48}
-             L ${width * 0.34} ${height * 0.32}
-             L ${width * 0.52} ${height * 0.32}
-             L ${width * 0.48} ${height * 0.48}
-             Z"
-          fill="url(#windowGradient)"
-          stroke="${hexToCSS(CAR_COLORS.outline)}"
-          stroke-width="1" />
+  <!-- Front Window -->
+  <path d="M 40 24 L 46 16 L 58 16 L 55 24 Z"
+        fill="url(#sedanWindow)" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="1"/>
 
-    <!-- Rear window -->
-    <path d="M ${width * 0.52} ${height * 0.48}
-             L ${width * 0.52} ${height * 0.32}
-             L ${width * 0.68} ${height * 0.32}
-             L ${width * 0.72} ${height * 0.48}
-             Z"
-          fill="url(#windowGradient)"
-          stroke="${hexToCSS(CAR_COLORS.outline)}"
-          stroke-width="1" />
-  </g>
+  <!-- Rear Window -->
+  <path d="M 58 24 L 58 16 L 78 16 L 84 24 Z"
+        fill="url(#sedanWindow)" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="1"/>
 
   <!-- Wheels -->
-  <g id="wheels">
-    <!-- Front wheel -->
-    <circle cx="${width * 0.25}" cy="${height * 0.75}" r="${width * 0.12}"
-            fill="${hexToCSS(CAR_COLORS.wheel)}"
-            stroke="${hexToCSS(CAR_COLORS.outline)}"
-            stroke-width="2" />
-    <circle cx="${width * 0.25}" cy="${height * 0.75}" r="${width * 0.06}"
-            fill="#666" />
-
-    <!-- Rear wheel -->
-    <circle cx="${width * 0.75}" cy="${height * 0.75}" r="${width * 0.12}"
-            fill="${hexToCSS(CAR_COLORS.wheel)}"
-            stroke="${hexToCSS(CAR_COLORS.outline)}"
-            stroke-width="2" />
-    <circle cx="${width * 0.75}" cy="${height * 0.75}" r="${width * 0.06}"
-            fill="#666" />
-  </g>
-
-  <!-- Engine glow (front) -->
-  <ellipse cx="${width * 0.12}" cy="${height * 0.6}" rx="${width * 0.08}" ry="${height * 0.12}"
-           fill="url(#engineGlow)" />
-
-  <!-- Brake lights (rear) -->
-  <ellipse cx="${width * 0.88}" cy="${height * 0.55}" rx="${width * 0.06}" ry="${height * 0.08}"
-           fill="url(#brakeGlow)" />
+  <circle cx="28" cy="38" r="10" fill="${hexToCSS(CAR_COLORS.wheel)}" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="2"/>
+  <circle cx="28" cy="38" r="5" fill="#555"/>
+  <circle cx="92" cy="38" r="10" fill="${hexToCSS(CAR_COLORS.wheel)}" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="2"/>
+  <circle cx="92" cy="38" r="5" fill="#555"/>
 
   <!-- Headlight -->
-  <rect x="${width * 0.08}" y="${height * 0.52}" width="${width * 0.05}" height="${height * 0.08}"
-        rx="2" fill="#fff" opacity="${isAccelerating ? 0.9 : 0.5}" />
+  <rect x="6" y="28" width="5" height="6" rx="1" fill="#fff" opacity="${isAccelerating ? 0.95 : 0.5}"/>
 
-  <!-- Tail light -->
-  <rect x="${width * 0.87}" y="${height * 0.52}" width="${width * 0.04}" height="${height * 0.08}"
-        rx="2" fill="${hexToCSS(UI_COLORS.negative)}" opacity="${isBraking ? 0.9 : 0.4}" />
+  <!-- Taillight -->
+  <rect x="109" y="28" width="4" height="6" rx="1" fill="${hexToCSS(UI_COLORS.negative)}" opacity="${brakeGlow}"/>
 
-  <!-- Stress indicator (roof) -->
+  <!-- Engine Glow -->
+  <ellipse cx="12" cy="32" rx="8" ry="6" fill="${hexToCSS(UI_COLORS.warning)}" opacity="${engineGlow * 0.5}"/>
+
+  <!-- Stress Indicator -->
   ${carPhysics.engineTemperature > 0.3 ? `
-  <circle cx="${width * 0.5}" cy="${height * 0.25}" r="${width * 0.04}"
-          fill="url(#stressGlow)" />
+  <circle cx="60" cy="10" r="4" fill="${hexToCSS(stressColor)}" opacity="${carPhysics.engineTemperature * 0.7}"/>
   ` : ''}
 
-  <!-- Fuel gauge on side -->
-  <g id="fuelGauge" transform="translate(${width * 0.4}, ${height * 0.58})">
-    <rect x="0" y="0" width="${width * 0.2}" height="${height * 0.06}"
-          fill="#222" rx="2" />
-    <rect x="1" y="1" width="${(width * 0.2 - 2) * fuelLevel}" height="${height * 0.06 - 2}"
-          fill="${fuelLevel > 0.3 ? hexToCSS(UI_COLORS.positive) : hexToCSS(UI_COLORS.negative)}"
-          rx="1" />
-  </g>
+  <!-- Fuel Gauge -->
+  <rect x="45" y="30" width="30" height="4" fill="#222" rx="1"/>
+  <rect x="46" y="31" width="${28 * carPhysics.fuelLevel}" height="2"
+        fill="${carPhysics.fuelLevel > 0.3 ? hexToCSS(UI_COLORS.positive) : hexToCSS(UI_COLORS.negative)}" rx="1"/>
+</svg>`;
+}
 
-  <!-- Leverage indicator (small bars on top) -->
+// ============================================
+// SPORTS CAR SVG
+// ============================================
+
+function generateSportsSVG(state: CarState): string {
+  const { pnlPercent, carPhysics, isAccelerating, isBraking } = state;
+  const width = 130;
+  const height = 45;
+
+  const bodyColor = getBodyColor(pnlPercent);
+  const stressColor = getStressColor(carPhysics.engineTemperature);
+  const bodyOpacity = 0.75 + carPhysics.durability * 0.25;
+  const engineGlow = isAccelerating ? 0.9 : 0.2;
+  const brakeGlow = isBraking ? 0.95 : 0.2;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
+  <defs>
+    <linearGradient id="sportsBody" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:${hexToCSS(bodyColor)};stop-opacity:${bodyOpacity}"/>
+      <stop offset="100%" style="stop-color:${hexToCSS(bodyColor)};stop-opacity:${bodyOpacity * 0.6}"/>
+    </linearGradient>
+    <linearGradient id="sportsWindow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:${hexToCSS(CAR_COLORS.window)};stop-opacity:0.85"/>
+      <stop offset="100%" style="stop-color:${hexToCSS(CAR_COLORS.window)};stop-opacity:0.4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Shadow -->
+  <ellipse cx="65" cy="42" rx="55" ry="4" fill="#000" opacity="0.35"/>
+
+  <!-- Main Body - Sleek profile -->
+  <path d="M 5 28
+           C 5 32, 10 35, 20 35
+           L 110 35
+           C 120 35, 125 32, 125 28
+           L 120 24
+           L 10 24
+           Z"
+        fill="url(#sportsBody)" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="2"/>
+
+  <!-- Front Hood - Low and aerodynamic -->
+  <path d="M 10 24 L 5 28 L 25 28 L 25 24 Z"
+        fill="url(#sportsBody)" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="1"/>
+
+  <!-- Cabin - Low-slung cockpit -->
+  <path d="M 45 24 L 55 12 L 85 12 L 95 24 Z"
+        fill="url(#sportsBody)" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="2"/>
+
+  <!-- Windshield - Raked angle -->
+  <path d="M 50 22 L 58 14 L 72 14 L 68 22 Z"
+        fill="url(#sportsWindow)" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="1"/>
+
+  <!-- Rear Window -->
+  <path d="M 72 22 L 72 14 L 82 14 L 88 22 Z"
+        fill="url(#sportsWindow)" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="1"/>
+
+  <!-- Spoiler -->
+  <path d="M 105 20 L 120 18 L 122 22 L 105 24 Z"
+        fill="${hexToCSS(bodyColor)}" opacity="${bodyOpacity * 0.9}" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="1"/>
+
+  <!-- Wheels - Larger for sports car -->
+  <circle cx="30" cy="35" r="11" fill="${hexToCSS(CAR_COLORS.wheel)}" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="2"/>
+  <circle cx="30" cy="35" r="5" fill="#666"/>
+  <circle cx="100" cy="35" r="11" fill="${hexToCSS(CAR_COLORS.wheel)}" stroke="${hexToCSS(CAR_COLORS.outline)}" stroke-width="2"/>
+  <circle cx="100" cy="35" r="5" fill="#666"/>
+
+  <!-- Dual Headlights -->
+  <rect x="3" y="24" width="4" height="4" rx="1" fill="#fff" opacity="${isAccelerating ? 0.95 : 0.5}"/>
+  <rect x="3" y="29" width="4" height="3" rx="1" fill="#fff" opacity="${isAccelerating ? 0.85 : 0.4}"/>
+
+  <!-- Dual Taillights -->
+  <rect x="123" y="24" width="3" height="4" rx="1" fill="${hexToCSS(UI_COLORS.negative)}" opacity="${brakeGlow}"/>
+  <rect x="123" y="29" width="3" height="3" rx="1" fill="${hexToCSS(UI_COLORS.negative)}" opacity="${brakeGlow * 0.8}"/>
+
+  <!-- Engine Glow - More intense for sports car -->
+  <ellipse cx="15" cy="28" rx="10" ry="5" fill="${hexToCSS(UI_COLORS.warning)}" opacity="${engineGlow * 0.6}"/>
+
+  <!-- Exhaust flame when accelerating -->
+  ${isAccelerating ? `
+  <ellipse cx="125" cy="32" rx="6" ry="3" fill="${hexToCSS(UI_COLORS.warning)}" opacity="0.6"/>
+  ` : ''}
+
+  <!-- Stress Indicator - On spoiler -->
+  ${carPhysics.engineTemperature > 0.3 ? `
+  <circle cx="112" cy="20" r="3" fill="${hexToCSS(stressColor)}" opacity="${carPhysics.engineTemperature * 0.8}"/>
+  ` : ''}
+
+  <!-- Fuel Gauge - Racing style -->
+  <rect x="55" y="26" width="24" height="3" fill="#111" rx="1"/>
+  <rect x="56" y="27" width="${22 * carPhysics.fuelLevel}" height="1"
+        fill="${carPhysics.fuelLevel > 0.3 ? hexToCSS(UI_COLORS.positive) : hexToCSS(UI_COLORS.negative)}" rx="0.5"/>
+
+  <!-- Leverage indicator bars -->
   ${carPhysics.accelerationBoost > 1.2 ? `
-  <g id="leverageIndicator">
-    ${Array.from({ length: Math.min(3, Math.floor(carPhysics.accelerationBoost)) }, (_, i) => `
-      <rect x="${width * 0.42 + i * width * 0.06}" y="${height * 0.2}"
-            width="${width * 0.04}" height="${height * 0.05}"
-            fill="${hexToCSS(UI_COLORS.warning)}" opacity="0.8" rx="1" />
-    `).join('')}
+  <g>
+    ${Array.from({ length: Math.min(3, Math.floor(carPhysics.accelerationBoost)) }, (_, i) =>
+      `<rect x="${60 + i * 8}" y="8" width="5" height="3" fill="${hexToCSS(UI_COLORS.warning)}" opacity="0.8" rx="0.5"/>`
+    ).join('')}
   </g>
   ` : ''}
 </svg>`;
-
-  return svg.trim();
 }
 
-/**
- * Convert SVG string to data URL for Phaser texture loading
- */
-export function svgToDataURL(svgString: string): string {
-  const encoded = encodeURIComponent(svgString)
-    .replace(/'/g, '%27')
-    .replace(/"/g, '%22');
-  return `data:image/svg+xml,${encoded}`;
-}
+// ============================================
+// PUBLIC API
+// ============================================
 
 /**
- * Create a unique texture key based on car state
- * Used for caching textures to avoid regenerating identical SVGs
+ * Generate SVG string for a car based on type and state
  */
-export function getCarTextureKey(config: CarSVGConfig): string {
-  const pnlBucket = Math.floor(config.pnlPercent / 5) * 5;
-  const tempBucket = Math.floor(config.carPhysics.engineTemperature * 10);
-  const fuelBucket = Math.floor(config.carPhysics.fuelLevel * 10);
-  const leverageBucket = Math.floor(config.carPhysics.accelerationBoost);
-
-  return `car_${pnlBucket}_${tempBucket}_${fuelBucket}_${leverageBucket}_${config.isAccelerating ? 1 : 0}_${config.isBraking ? 1 : 0}`;
-}
-
-/**
- * Simple top-down car SVG for overhead view
- */
-export function generateTopDownCarSVG(config: CarSVGConfig): string {
-  const { width, height, pnlPercent, carPhysics } = config;
-
-  let bodyColor: number = CAR_COLORS.body.neutral;
-  if (pnlPercent > 5) {
-    bodyColor = lerpColor(CAR_COLORS.body.neutral, CAR_COLORS.body.profit, Math.min(1, pnlPercent / 20));
-  } else if (pnlPercent < -5) {
-    bodyColor = lerpColor(CAR_COLORS.body.neutral, CAR_COLORS.body.loss, Math.min(1, Math.abs(pnlPercent) / 20));
+export function generateCarSVG(carType: CarType, state: CarState): string {
+  switch (carType) {
+    case 'sedan':
+      return generateSedanSVG(state);
+    case 'sports':
+      return generateSportsSVG(state);
+    default:
+      return generateSedanSVG(state);
   }
+}
 
-  const bodyOpacity = 0.7 + carPhysics.durability * 0.3;
+/**
+ * Get car definition by type
+ */
+export function getCarDefinition(carType: CarType): CarDefinition {
+  return CAR_DEFINITIONS.find(c => c.type === carType) || CAR_DEFINITIONS[0];
+}
 
-  return `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
-  <!-- Car body (top-down) -->
-  <rect x="${width * 0.2}" y="${height * 0.1}"
-        width="${width * 0.6}" height="${height * 0.8}"
-        rx="${width * 0.1}"
-        fill="${hexToCSS(bodyColor)}"
-        opacity="${bodyOpacity}"
-        stroke="${hexToCSS(CAR_COLORS.outline)}"
-        stroke-width="2" />
+/**
+ * Generate a unique texture key for caching
+ */
+export function getCarTextureKey(carType: CarType, state: CarState): string {
+  const pnlBucket = Math.floor(state.pnlPercent / 5) * 5;
+  const tempBucket = Math.floor(state.carPhysics.engineTemperature * 10);
+  const fuelBucket = Math.floor(state.carPhysics.fuelLevel * 10);
+  const leverageBucket = Math.floor(state.carPhysics.accelerationBoost);
 
-  <!-- Windshield -->
-  <rect x="${width * 0.28}" y="${height * 0.15}"
-        width="${width * 0.44}" height="${height * 0.2}"
-        rx="${width * 0.05}"
-        fill="${hexToCSS(CAR_COLORS.window)}"
-        opacity="0.7" />
+  return `car_${carType}_${pnlBucket}_${tempBucket}_${fuelBucket}_${leverageBucket}_${state.isAccelerating ? 1 : 0}_${state.isBraking ? 1 : 0}`;
+}
 
-  <!-- Wheels -->
-  <rect x="${width * 0.12}" y="${height * 0.2}" width="${width * 0.1}" height="${height * 0.18}"
-        rx="3" fill="${hexToCSS(CAR_COLORS.wheel)}" />
-  <rect x="${width * 0.78}" y="${height * 0.2}" width="${width * 0.1}" height="${height * 0.18}"
-        rx="3" fill="${hexToCSS(CAR_COLORS.wheel)}" />
-  <rect x="${width * 0.12}" y="${height * 0.62}" width="${width * 0.1}" height="${height * 0.18}"
-        rx="3" fill="${hexToCSS(CAR_COLORS.wheel)}" />
-  <rect x="${width * 0.78}" y="${height * 0.62}" width="${width * 0.1}" height="${height * 0.18}"
-        rx="3" fill="${hexToCSS(CAR_COLORS.wheel)}" />
-</svg>`.trim();
+/**
+ * Generate preview SVG for car selection screen
+ */
+export function generateCarPreviewSVG(carType: CarType): string {
+  const neutralState: CarState = {
+    pnlPercent: 0,
+    carPhysics: {
+      enginePower: 1,
+      brakeStrength: 1,
+      accelerationBoost: 1,
+      traction: 1,
+      durability: 1,
+      recoveryDrag: 1,
+      engineTemperature: 0,
+      fuelLevel: 1,
+    },
+    isAccelerating: false,
+    isBraking: false,
+  };
+
+  return generateCarSVG(carType, neutralState);
 }
