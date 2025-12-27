@@ -1,31 +1,112 @@
 import Phaser from 'phaser';
 import { getScreenDimensions, globalGameState } from '../config';
+import type { RoadSegment, RoadConditions, MarketRegime, CarPhysics } from '../../types';
+import {
+  drawSky,
+  drawFog,
+  drawRain,
+  drawCloud,
+  drawLightning,
+  drawRoadSegment,
+  drawGround,
+  drawVectorCar,
+  drawGauge,
+  drawBar,
+  type RoadGeometry,
+  type CarGeometry,
+} from '../vector';
+import {
+  REGIME_COLORS,
+  UI_COLORS,
+  getPnLColor,
+  getDrawdownColor,
+} from '../vector';
 
 /**
- * GameScene - A stateless view engine that renders based on external state
+ * GameScene - Vector-based visualization engine
  *
- * This scene does NOT manage its own game logic. It receives state updates from
- * the React AppStateProvider and renders accordingly. The game acts purely as
- * a visualization layer.
+ * A clean, simple vector graphics game that visualizes financial state.
+ * All rendering uses geometric primitives - no bitmap assets for gameplay elements.
+ * This keeps focus on the financial concepts rather than game art.
  */
 export class GameScene extends Phaser.Scene {
-  private vehicle: any = null;
-  private cursors: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
-  private terrainGraphics: Phaser.GameObjects.Graphics | null = null;
-  private groundBodies: MatterJS.BodyType[] = [];
-  private hudText: Phaser.GameObjects.Text | null = null;
+  // Graphics layers (back to front)
+  private skyGraphics: Phaser.GameObjects.Graphics | null = null;
+  private weatherGraphics: Phaser.GameObjects.Graphics | null = null;
+  private groundGraphics: Phaser.GameObjects.Graphics | null = null;
+  private roadGraphics: Phaser.GameObjects.Graphics | null = null;
+  private carGraphics: Phaser.GameObjects.Graphics | null = null;
+  private hudGraphics: Phaser.GameObjects.Graphics | null = null;
 
-  // External state received from React (single source of truth)
+  // Physics bodies
+  private carBody: MatterJS.BodyType | null = null;
+  private frontWheel: MatterJS.BodyType | null = null;
+  private backWheel: MatterJS.BodyType | null = null;
+  private groundBodies: MatterJS.BodyType[] = [];
+
+  // Input
+  private cursors: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
+
+  // Animation state
+  private weatherTime = 0;
+  private lightningTimer = 0;
+  private showLightning = false;
+
+  // External state from React (single source of truth)
   private externalState = {
+    // Terrain
     terrainSlope: 0,
     terrainRoughness: 0,
+    roadHeight: 0,
+
+    // Road conditions
+    roadConditions: {
+      roughness: 0,
+      visibility: 1,
+      slope: 0,
+      grip: 1,
+      width: 1,
+      weather: 'clear' as RoadConditions['weather'],
+    },
+
+    // Road segment
+    roadSegment: {
+      pattern: 'neutral' as const,
+      slope: 0,
+      roughness: 0,
+      width: 1,
+      hasObstacle: false,
+      hasBump: false,
+      hasPothole: false,
+    } as RoadSegment,
+
+    // Car physics
+    carPhysics: {
+      enginePower: 1,
+      brakeStrength: 1,
+      accelerationBoost: 1,
+      traction: 1,
+      durability: 1,
+      recoveryDrag: 1,
+      engineTemperature: 0,
+      fuelLevel: 1,
+    } as CarPhysics,
+
+    // Physics modifiers
     torqueMultiplier: 1,
     brakeMultiplier: 1,
     tractionMultiplier: 1,
+
+    // Financial state
     leverage: 1,
     cashBuffer: 0.2,
+    pnlPercent: 0,
+    drawdown: 0,
+    stressLevel: 0,
+
+    // Market state
+    regime: 'CHOP' as MarketRegime,
     currentIndex: 0,
-    regime: 'CHOP' as string,
     wealth: 10000,
     datasetName: 'S&P 500',
   };
@@ -35,60 +116,54 @@ export class GameScene extends Phaser.Scene {
   }
 
   preload() {
+    // No bitmap assets needed - all vector graphics
+    // But we still load the car physics data for reference
     const vehicleKey = globalGameState.vehicleKey;
-
-    // Load vehicle assets
-    this.load.multiatlas('carParts', '/car/carParts.json', '/car');
     this.load.json(vehicleKey, `/car/${vehicleKey}.json`);
-
-    // Load terrain tileset
-    this.load.image('land', '/land_ext.png');
-    this.load.json('landCollision', '/land_ext.json');
-
-    // Load backgrounds
-    this.load.image('sky', '/game_background_1/layers/sky.png');
-    this.load.image('rocks_1', '/game_background_1/layers/rocks_1.png');
-    this.load.image('rocks_2', '/game_background_1/layers/rocks_2.png');
-    this.load.image('clouds_1', '/game_background_1/layers/clouds_1.png');
-    this.load.image('clouds_2', '/game_background_1/layers/clouds_2.png');
-    this.load.image('ground_1', '/game_background_1/layers/ground_1.png');
-    this.load.image('ground_2', '/game_background_1/layers/ground_2.png');
-    this.load.image('ground_3', '/game_background_1/layers/ground_3.png');
-    this.load.image('plant', '/game_background_1/layers/plant.png');
   }
 
   create() {
     const { width, height } = getScreenDimensions();
 
-    // Create background layers
-    this.createBackground();
+    // Create graphics layers (order matters - back to front)
+    this.skyGraphics = this.add.graphics();
+    this.weatherGraphics = this.add.graphics();
+    this.groundGraphics = this.add.graphics();
+    this.roadGraphics = this.add.graphics();
+    this.carGraphics = this.add.graphics();
+    this.hudGraphics = this.add.graphics().setScrollFactor(0);
 
-    // Create terrain graphics
-    this.terrainGraphics = this.add.graphics();
-    this.createTerrain();
+    // Create physics world
+    this.createPhysicsWorld();
 
-    // Create vehicle
-    this.createVehicle();
+    // Create vector car
+    this.createVectorCar();
 
-    // Setup camera
-    if (this.vehicle?.mainBody) {
-      this.cameras.main.startFollow(this.vehicle.mainBody, true, 0.2, 0.2, -width / 8, height / 8);
+    // Setup camera to follow car
+    if (this.carBody) {
+      this.cameras.main.startFollow(
+        { x: this.carBody.position.x, y: this.carBody.position.y } as any,
+        true,
+        0.2,
+        0.2,
+        -width / 8,
+        height / 8
+      );
       this.cameras.main.setZoom(1.5);
-      this.cameras.main.roundPixels = true;
     }
 
-    // Create minimal HUD (most HUD is in React)
-    this.createHUD();
-
-    // Setup keyboard input
+    // Setup keyboard
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.setupKeyboardControls();
 
-    // Enable mouse spring for physics interaction
-    this.matter.add.mouseSpring();
+    // Enable physics debug drawing temporarily
+    // this.matter.world.drawDebug = true;
 
     // Register for state updates from React
     this.game.events.on('updateState', this.handleStateUpdate, this);
+
+    // Initial render
+    this.renderAll();
 
     // Notify React that game is ready
     if (globalGameState.onStateChange) {
@@ -96,186 +171,99 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * Handle state updates from React AppStateProvider
-   * This is the primary way the game receives state changes
-   */
   private handleStateUpdate = (state: Partial<typeof this.externalState>) => {
-    const prevState = { ...this.externalState };
     Object.assign(this.externalState, state);
 
-    // Apply physics modifiers to vehicle
-    if (this.vehicle) {
-      this.vehicle.torqueMultiplier = this.externalState.torqueMultiplier;
-      this.vehicle.brakeMultiplier = this.externalState.brakeMultiplier;
-      this.vehicle.tractionMultiplier = this.externalState.tractionMultiplier;
-    }
-
-    // Update terrain if slope changed significantly
-    if (Math.abs(prevState.terrainSlope - this.externalState.terrainSlope) > 5) {
-      this.updateTerrainSlope();
-    }
-
-    // Update HUD
-    this.updateHUD();
+    // Update physics based on new state
+    this.updatePhysicsFromState();
   };
 
-  private createBackground() {
-    const { width, height } = getScreenDimensions();
-
-    const layers = [
-      { key: 'sky', scrollFactor: 0 },
-      { key: 'clouds_1', scrollFactor: 0.1 },
-      { key: 'clouds_2', scrollFactor: 0.15 },
-      { key: 'rocks_1', scrollFactor: 0.3 },
-      { key: 'rocks_2', scrollFactor: 0.4 },
-      { key: 'ground_1', scrollFactor: 0.6 },
-      { key: 'ground_2', scrollFactor: 0.7 },
-      { key: 'ground_3', scrollFactor: 0.8 },
-    ];
-
-    layers.forEach((layer) => {
-      const img = this.add.image(width / 2, height / 2, layer.key);
-      img.setScrollFactor(layer.scrollFactor);
-      img.setDisplaySize(width * 2, height);
-    });
-  }
-
-  private createTerrain() {
+  private createPhysicsWorld() {
     const { width, height } = getScreenDimensions();
     const groundY = height - 100;
-
-    // Clear existing ground bodies
-    this.groundBodies.forEach((body) => {
-      this.matter.world.remove(body);
-    });
-    this.groundBodies = [];
 
     // Create ground segments
     const segmentWidth = 200;
-    const numSegments = 50;
+    const numSegments = 100;
 
-    for (let i = 0; i < numSegments; i++) {
+    for (let i = -10; i < numSegments; i++) {
       const x = i * segmentWidth;
-      const body = this.matter.add.rectangle(x + segmentWidth / 2, groundY, segmentWidth, 100, {
-        isStatic: true,
-        friction: 1,
-      });
+      const body = this.matter.add.rectangle(
+        x + segmentWidth / 2,
+        groundY + 40,
+        segmentWidth,
+        80,
+        {
+          isStatic: true,
+          friction: 1,
+          label: 'ground',
+        }
+      );
       this.groundBodies.push(body);
     }
-
-    this.drawTerrain();
   }
 
-  private updateTerrainSlope() {
-    // Update terrain friction based on roughness
-    const friction = Math.max(0.3, 1 - this.externalState.terrainRoughness * 0.7);
-    this.groundBodies.forEach((body) => {
-      body.friction = friction;
-    });
-
-    this.drawTerrain();
-  }
-
-  private drawTerrain() {
-    const { height } = getScreenDimensions();
-    const groundY = height - 100;
-
-    if (this.terrainGraphics) {
-      this.terrainGraphics.clear();
-
-      // Color based on regime
-      let color = 0x4a5568;
-      switch (this.externalState.regime) {
-        case 'BULL':
-          color = 0x10b981;
-          break;
-        case 'BEAR':
-          color = 0xef4444;
-          break;
-        case 'CRASH':
-          color = 0xdc2626;
-          break;
-        case 'RECOVERY':
-          color = 0x06b6d4;
-          break;
-      }
-
-      this.terrainGraphics.fillStyle(color, 0.8);
-      this.terrainGraphics.fillRect(-1000, groundY - 50, 15000, 200);
-    }
-  }
-
-  private createVehicle() {
+  private createVectorCar() {
     const { width, height } = getScreenDimensions();
-    const vehicleX = width / 4;
-    const vehicleY = height - 200;
+    const carX = width / 4;
+    const carY = height - 180;
 
-    // Create main body
-    const body = this.matter.add.rectangle(vehicleX, vehicleY, 100, 40, {
-      chamfer: { radius: 10 },
+    // Car dimensions
+    const carWidth = 100;
+    const carHeight = 40;
+    const wheelRadius = 18;
+
+    // Main body
+    this.carBody = this.matter.add.rectangle(carX, carY, carWidth, carHeight, {
+      chamfer: { radius: 8 },
       friction: 0.8,
       frictionAir: 0.01,
+      label: 'carBody',
     });
 
-    // Create wheels
-    const wheelRadius = 20;
+    // Wheels
     const wheelOptions = {
       friction: 1,
       frictionStatic: 10,
       restitution: 0.1,
-      circleRadius: wheelRadius,
+      label: 'wheel',
     };
 
-    const frontWheel = this.matter.add.circle(vehicleX + 35, vehicleY + 20, wheelRadius, wheelOptions);
-    const backWheel = this.matter.add.circle(vehicleX - 35, vehicleY + 20, wheelRadius, wheelOptions);
+    this.frontWheel = this.matter.add.circle(
+      carX + carWidth / 3,
+      carY + carHeight / 2 + 5,
+      wheelRadius,
+      wheelOptions
+    );
 
-    // Connect wheels to body
-    this.matter.add.constraint(body, frontWheel, 40, 0.4, { pointA: { x: 35, y: 20 } });
-    this.matter.add.constraint(body, backWheel, 40, 0.4, { pointA: { x: -35, y: 20 } });
+    this.backWheel = this.matter.add.circle(
+      carX - carWidth / 3,
+      carY + carHeight / 2 + 5,
+      wheelRadius,
+      wheelOptions
+    );
 
-    // Add visual sprites
-    const bodySprite = this.add.rectangle(vehicleX, vehicleY, 100, 40, 0x3b82f6);
-    const frontWheelSprite = this.add.circle(vehicleX + 35, vehicleY + 20, wheelRadius, 0x1f2937);
-    const backWheelSprite = this.add.circle(vehicleX - 35, vehicleY + 20, wheelRadius, 0x1f2937);
+    // Connect wheels to body with constraints
+    this.matter.add.constraint(this.carBody, this.frontWheel, 35, 0.4, {
+      pointA: { x: carWidth / 3, y: carHeight / 2 },
+    });
 
-    this.vehicle = {
-      mainBody: body,
-      frontWheel,
-      backWheel,
-      bodySprite,
-      frontWheelSprite,
-      backWheelSprite,
-      torqueMultiplier: 1,
-      brakeMultiplier: 1,
-      tractionMultiplier: 1,
-    };
+    this.matter.add.constraint(this.carBody, this.backWheel, 35, 0.4, {
+      pointA: { x: -carWidth / 3, y: carHeight / 2 },
+    });
+
+    // Mouse spring for debug
+    this.matter.add.mouseSpring();
   }
 
-  private createHUD() {
-    // Minimal HUD - most info is shown in React overlay
-    this.hudText = this.add
-      .text(16, 16, '', {
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        color: '#ffffff',
-        backgroundColor: '#000000aa',
-        padding: { x: 8, y: 4 },
-      })
-      .setScrollFactor(0);
+  private updatePhysicsFromState() {
+    const { roadConditions, carPhysics } = this.externalState;
 
-    this.updateHUD();
-  }
-
-  private updateHUD() {
-    if (this.hudText) {
-      const { leverage, cashBuffer, regime, wealth } = this.externalState;
-      this.hudText.setText(
-        `${this.externalState.datasetName} | ${regime} | ` +
-          `Lev: ${leverage.toFixed(1)}x | Cash: ${(cashBuffer * 100).toFixed(0)}% | ` +
-          `$${wealth.toLocaleString()}`
-      );
-    }
+    // Update ground friction based on grip
+    const friction = Math.max(0.3, roadConditions.grip);
+    this.groundBodies.forEach((body) => {
+      body.friction = friction;
+    });
   }
 
   private setupKeyboardControls() {
@@ -284,12 +272,7 @@ export class GameScene extends Phaser.Scene {
       this.scale.toggleFullscreen();
     });
 
-    // FPS logging
-    this.input.keyboard!.addKey('D').on('down', () => {
-      console.log('FPS:', this.game.loop.actualFps);
-    });
-
-    // Restart - delegate to React
+    // Reset
     this.input.keyboard!.addKey('R').on('down', () => {
       if (globalGameState.onReset) {
         globalGameState.onReset();
@@ -297,101 +280,272 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  update() {
-    if (!this.cursors || !this.vehicle) return;
+  update(time: number, delta: number) {
+    if (!this.cursors || !this.carBody) return;
 
-    // Update vehicle sprites to match physics bodies
-    this.updateVehicleSprites();
+    // Update animation timers
+    this.weatherTime += delta / 1000;
 
-    // Handle input (physics-only, no state management)
+    // Handle input
     this.handleInput();
 
-    // Report vehicle state back to React
+    // Update camera follow target
+    if (this.carBody) {
+      const target = this.cameras.main.deadzone ? undefined : this.carBody.position;
+      if (target) {
+        this.cameras.main.scrollX = target.x - this.cameras.main.width / 2;
+      }
+    }
+
+    // Render all vector graphics
+    this.renderAll();
+
+    // Report vehicle state to React
     this.reportVehicleState();
   }
 
-  private updateVehicleSprites() {
-    const { mainBody, frontWheel, backWheel, bodySprite, frontWheelSprite, backWheelSprite } = this.vehicle;
+  private handleInput() {
+    if (!this.carBody || !this.frontWheel || !this.backWheel) return;
 
-    if (bodySprite && mainBody) {
-      bodySprite.x = mainBody.position.x;
-      bodySprite.y = mainBody.position.y;
-      bodySprite.rotation = mainBody.angle;
+    const { carPhysics } = this.externalState;
 
-      // Color based on leverage (more red = more leveraged)
-      const blueColor = new Phaser.Display.Color(59, 130, 246); // Blue (low leverage)
-      const redColor = new Phaser.Display.Color(239, 68, 68); // Red (high leverage)
-      const leverageColor = Phaser.Display.Color.Interpolate.ColorWithColor(
-        blueColor,
-        redColor,
-        3,
-        (this.externalState.leverage - 0.5) / 2.5
+    // Base values
+    const baseTorque = 0.003;
+    const torque = baseTorque * carPhysics.enginePower * carPhysics.traction;
+
+    // Apply recovery drag
+    const effectiveTorque = torque / carPhysics.recoveryDrag;
+
+    // Forward (arrow up)
+    if (this.cursors!.up.isDown) {
+      this.matter.body.setAngularVelocity(
+        this.frontWheel,
+        this.frontWheel.angularVelocity - effectiveTorque
       );
-      bodySprite.fillColor = Phaser.Display.Color.GetColor(leverageColor.r, leverageColor.g, leverageColor.b);
+      this.matter.body.setAngularVelocity(
+        this.backWheel,
+        this.backWheel.angularVelocity - effectiveTorque
+      );
     }
 
-    if (frontWheelSprite && frontWheel) {
-      frontWheelSprite.x = frontWheel.position.x;
-      frontWheelSprite.y = frontWheel.position.y;
+    // Brake (arrow down)
+    if (this.cursors!.down.isDown) {
+      const brakeFactor = 0.92 + (1 - carPhysics.brakeStrength) * 0.05;
+      this.matter.body.setAngularVelocity(
+        this.frontWheel,
+        this.frontWheel.angularVelocity * brakeFactor
+      );
+      this.matter.body.setAngularVelocity(
+        this.backWheel,
+        this.backWheel.angularVelocity * brakeFactor
+      );
     }
 
-    if (backWheelSprite && backWheel) {
-      backWheelSprite.x = backWheel.position.x;
-      backWheelSprite.y = backWheel.position.y;
+    // Tilt controls
+    const tiltForce = 0.0008;
+    if (this.cursors!.left.isDown) {
+      this.matter.body.applyForce(this.carBody, this.carBody.position, { x: 0, y: -tiltForce });
+    }
+    if (this.cursors!.right.isDown) {
+      this.matter.body.applyForce(this.carBody, this.carBody.position, { x: tiltForce, y: 0 });
     }
   }
 
-  private handleInput() {
-    const { mainBody, frontWheel, backWheel, torqueMultiplier, brakeMultiplier, tractionMultiplier } = this.vehicle;
-    const baseTorque = 0.002;
-    const torque = baseTorque * torqueMultiplier * tractionMultiplier;
-    const force = 0.001;
+  private renderAll() {
+    const { width, height } = getScreenDimensions();
+    const { roadConditions, roadSegment, carPhysics, regime, pnlPercent, stressLevel } =
+      this.externalState;
 
-    if (this.cursors!.up.isDown) {
-      // Apply torque to wheels (forward)
-      this.matter.body.setAngularVelocity(frontWheel, frontWheel.angularVelocity - torque);
-      this.matter.body.setAngularVelocity(backWheel, backWheel.angularVelocity - torque);
+    // Clear all graphics
+    this.skyGraphics?.clear();
+    this.weatherGraphics?.clear();
+    this.groundGraphics?.clear();
+    this.roadGraphics?.clear();
+    this.carGraphics?.clear();
+    this.hudGraphics?.clear();
+
+    // 1. Draw sky
+    if (this.skyGraphics) {
+      drawSky(this.skyGraphics, width * 3, height, roadConditions.weather);
     }
 
-    if (this.cursors!.down.isDown) {
-      // Brake
-      const brakeFactor = 0.95 / brakeMultiplier;
-      this.matter.body.setAngularVelocity(frontWheel, frontWheel.angularVelocity * brakeFactor);
-      this.matter.body.setAngularVelocity(backWheel, backWheel.angularVelocity * brakeFactor);
+    // 2. Draw weather effects
+    if (this.weatherGraphics) {
+      this.renderWeatherEffects(width * 3, height);
     }
 
-    if (this.cursors!.left.isDown) {
-      // Tilt left (wheelie)
-      this.matter.body.applyForce(mainBody, mainBody.position, { x: 0, y: -force });
+    // 3. Draw ground
+    if (this.groundGraphics && this.carBody) {
+      const groundY = height - 60;
+      drawGround(
+        this.groundGraphics,
+        this.carBody.position.x - width,
+        groundY,
+        width * 3,
+        200,
+        regime
+      );
     }
 
-    if (this.cursors!.right.isDown) {
-      // Lean forward
-      this.matter.body.applyForce(mainBody, mainBody.position, { x: force, y: 0 });
+    // 4. Draw road segments
+    if (this.roadGraphics && this.carBody) {
+      this.renderRoad();
     }
+
+    // 5. Draw car
+    if (this.carGraphics && this.carBody) {
+      const carGeometry: CarGeometry = {
+        x: this.carBody.position.x,
+        y: this.carBody.position.y,
+        width: 100,
+        height: 40,
+        rotation: this.carBody.angle,
+        wheelRadius: 18,
+      };
+      drawVectorCar(this.carGraphics, carGeometry, carPhysics, pnlPercent);
+    }
+
+    // 6. Draw HUD (screen-space)
+    if (this.hudGraphics) {
+      this.renderHUD();
+    }
+  }
+
+  private renderWeatherEffects(width: number, height: number) {
+    if (!this.weatherGraphics) return;
+
+    const { roadConditions } = this.externalState;
+
+    // Fog overlay
+    drawFog(this.weatherGraphics, width, height, roadConditions.visibility);
+
+    // Rain
+    if (roadConditions.weather === 'rainy' || roadConditions.weather === 'stormy') {
+      const intensity = roadConditions.weather === 'stormy' ? 0.8 : 0.4;
+      drawRain(this.weatherGraphics, width, height, intensity, this.weatherTime);
+    }
+
+    // Lightning (random during storms)
+    if (roadConditions.weather === 'stormy') {
+      this.lightningTimer += 1;
+      if (this.lightningTimer > 120 && Math.random() < 0.02) {
+        this.showLightning = true;
+        this.lightningTimer = 0;
+      }
+      if (this.showLightning) {
+        const lightningX = Math.random() * width;
+        drawLightning(this.weatherGraphics, lightningX, 0, height * 0.6);
+        if (Math.random() < 0.3) {
+          this.showLightning = false;
+        }
+      }
+    }
+
+    // Clouds
+    if (roadConditions.weather !== 'clear') {
+      const cloudCount = roadConditions.weather === 'stormy' ? 8 : 4;
+      for (let i = 0; i < cloudCount; i++) {
+        const cloudX = (i * width / cloudCount + this.weatherTime * 10) % width;
+        const cloudY = 50 + Math.sin(i * 1.5) * 30;
+        const cloudWidth = 80 + (i % 3) * 30;
+        drawCloud(this.weatherGraphics, cloudX, cloudY, cloudWidth, roadConditions.weather);
+      }
+    }
+  }
+
+  private renderRoad() {
+    if (!this.roadGraphics || !this.carBody) return;
+
+    const { width, height } = getScreenDimensions();
+    const { roadSegment, roadConditions, regime } = this.externalState;
+
+    const groundY = height - 100;
+    const segmentWidth = 200;
+
+    // Draw multiple road segments around the car
+    const carX = this.carBody.position.x;
+    const startSegment = Math.floor((carX - width) / segmentWidth);
+    const endSegment = Math.floor((carX + width * 2) / segmentWidth);
+
+    for (let i = startSegment; i <= endSegment; i++) {
+      const geometry: RoadGeometry = {
+        x: i * segmentWidth,
+        y: groundY - 80,
+        width: segmentWidth,
+        slope: roadSegment.slope * (0.8 + Math.sin(i * 0.5) * 0.2), // Slight variation
+        height: 0,
+      };
+
+      drawRoadSegment(
+        this.roadGraphics,
+        geometry,
+        roadSegment,
+        roadConditions,
+        regime
+      );
+    }
+  }
+
+  private renderHUD() {
+    if (!this.hudGraphics) return;
+
+    const { carPhysics, pnlPercent, drawdown, stressLevel, leverage, regime, wealth, datasetName } =
+      this.externalState;
+
+    const padding = 16;
+    const gaugeRadius = 24;
+
+    // Background panel
+    this.hudGraphics.fillStyle(UI_COLORS.panel, 0.85);
+    this.hudGraphics.fillRoundedRect(padding, padding, 280, 100, 8);
+    this.hudGraphics.lineStyle(1, UI_COLORS.border, 0.5);
+    this.hudGraphics.strokeRoundedRect(padding, padding, 280, 100, 8);
+
+    // Engine gauge (fuel level)
+    const fuelColor = carPhysics.fuelLevel > 0.3 ? UI_COLORS.positive : UI_COLORS.negative;
+    drawGauge(this.hudGraphics, padding + 40, padding + 50, gaugeRadius, carPhysics.fuelLevel, fuelColor);
+
+    // Stress gauge
+    const stressColor = stressLevel < 0.5 ? UI_COLORS.positive : (stressLevel < 0.7 ? UI_COLORS.warning : UI_COLORS.negative);
+    drawGauge(this.hudGraphics, padding + 100, padding + 50, gaugeRadius, stressLevel, stressColor);
+
+    // P&L bar
+    const pnlNormalized = (pnlPercent + 100) / 200; // Map -100% to +100% -> 0 to 1
+    const pnlColor = getPnLColor(pnlPercent);
+    drawBar(this.hudGraphics, padding + 140, padding + 30, 120, 12, pnlNormalized, pnlColor);
+
+    // Drawdown bar
+    const drawdownColor = getDrawdownColor(drawdown);
+    drawBar(this.hudGraphics, padding + 140, padding + 55, 120, 12, 1 - drawdown, drawdownColor);
+
+    // Regime indicator
+    const regimeColors = REGIME_COLORS[regime];
+    this.hudGraphics.fillStyle(regimeColors.primary, 1);
+    this.hudGraphics.fillCircle(padding + 270, padding + 85, 8);
+
+    // Text labels (using Phaser text - not vector but necessary for readability)
+    // This would be added as separate text objects in create()
   }
 
   private reportVehicleState() {
-    if (!this.vehicle?.mainBody) return;
+    if (!this.carBody) return;
 
-    const isFlipped = Math.abs(this.vehicle.mainBody.angle) > Math.PI / 2;
+    const isFlipped = Math.abs(this.carBody.angle) > Math.PI / 2;
 
-    // Report to React via global callback
     if (globalGameState.onVehicleUpdate) {
       globalGameState.onVehicleUpdate({
-        velocityX: this.vehicle.mainBody.velocity?.x || 0,
-        velocityY: this.vehicle.mainBody.velocity?.y || 0,
-        angularVelocity: this.vehicle.mainBody.angularVelocity || 0,
+        velocityX: this.carBody.velocity?.x || 0,
+        velocityY: this.carBody.velocity?.y || 0,
+        angularVelocity: this.carBody.angularVelocity || 0,
         isOnGround: true,
         isFlipped,
-        positionX: this.vehicle.mainBody.position.x,
-        positionY: this.vehicle.mainBody.position.y,
+        positionX: this.carBody.position.x,
+        positionY: this.carBody.position.y,
       });
     }
   }
 
   shutdown() {
-    // Clean up event listener
     this.game.events.off('updateState', this.handleStateUpdate, this);
   }
 }
