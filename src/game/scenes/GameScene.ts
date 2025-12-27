@@ -4,6 +4,7 @@ import type { RoadSegment, RoadConditions, MarketRegime, CarPhysics } from '../.
 import {
   drawSky,
   drawFog,
+  drawWind,
   drawRain,
   drawCloud,
   drawLightning,
@@ -491,8 +492,16 @@ export class GameScene extends Phaser.Scene {
 
     const { roadConditions } = this.externalState;
 
-    // Fog overlay
+    // Fog overlay (VIX → fog)
     drawFog(this.weatherGraphics, width, height, roadConditions.visibility);
+
+    // Wind effect (VIX → wind intensity)
+    // Low visibility or stormy weather = more wind
+    const windIntensity = Math.max(
+      1 - roadConditions.visibility,
+      roadConditions.weather === 'stormy' ? 0.8 : 0
+    );
+    drawWind(this.weatherGraphics, width, height, windIntensity, this.weatherTime);
 
     // Rain
     if (roadConditions.weather === 'rainy' || roadConditions.weather === 'stormy') {

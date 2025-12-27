@@ -47,7 +47,11 @@ export interface RoadGeometry {
 
 /**
  * Draw a single road segment as a parallelogram
- * The slope determines the angle of the road
+ * Implements CONCEPTS.md Market Physics:
+ * - Slope from MA slope / Daily Return
+ * - Width from Volume
+ * - Roughness from ATR (surface texture)
+ * - Grip from RSI (slippery edges)
  */
 export function drawRoadSegment(
   graphics: Phaser.GameObjects.Graphics,
@@ -62,12 +66,17 @@ export function drawRoadSegment(
   const slopeOffset = geometry.slope * 1.5; // Convert slope to pixels
   const groundY = geometry.y + geometry.height;
 
+  // Road width affected by volume (conditions.width: 0.5-1.5 multiplier)
+  const baseRoadHeight = 80;
+  const roadHeight = baseRoadHeight * Math.max(0.6, Math.min(1.4, conditions.width));
+  const roadCenterOffset = (roadHeight - baseRoadHeight) / 2;
+
   // Road surface (parallelogram)
   const roadPoints = [
-    { x: geometry.x, y: groundY },
-    { x: geometry.x + geometry.width, y: groundY - slopeOffset },
-    { x: geometry.x + geometry.width, y: groundY - slopeOffset + 80 },
-    { x: geometry.x, y: groundY + 80 },
+    { x: geometry.x, y: groundY - roadCenterOffset },
+    { x: geometry.x + geometry.width, y: groundY - slopeOffset - roadCenterOffset },
+    { x: geometry.x + geometry.width, y: groundY - slopeOffset + roadHeight - roadCenterOffset },
+    { x: geometry.x, y: groundY + roadHeight - roadCenterOffset },
   ];
 
   applyStyle(graphics, style);
@@ -78,8 +87,41 @@ export function drawRoadSegment(
   graphics.fillPath();
   graphics.strokePath();
 
+  // Edge markings - slippery when grip is low (RSI extreme)
+  // Low grip = icy/slippery looking edges
+  const edgeAlpha = 0.3 + (1 - conditions.grip) * 0.5;
+  const edgeColor = conditions.grip < 0.4 ? 0x7dd3fc : ROAD_COLORS.shoulder; // Icy blue when slippery
+  graphics.fillStyle(edgeColor, edgeAlpha);
+  const edgeWidth = 8 + (1 - conditions.grip) * 8;
+  // Left edge
+  graphics.fillRect(geometry.x, groundY - roadCenterOffset, edgeWidth, roadHeight);
+  // Right edge
+  graphics.fillRect(
+    geometry.x + geometry.width - edgeWidth,
+    groundY - slopeOffset - roadCenterOffset,
+    edgeWidth,
+    roadHeight
+  );
+
+  // Road roughness texture from ATR
+  // Higher roughness = more surface cracks/texture
+  if (conditions.roughness > 0.2) {
+    graphics.lineStyle(1, ROAD_COLORS.edge, conditions.roughness * 0.4);
+    const crackCount = Math.floor(conditions.roughness * 8);
+    for (let i = 0; i < crackCount; i++) {
+      const crackX = geometry.x + (i + 1) * (geometry.width / (crackCount + 1));
+      const crackY = groundY + roadHeight / 2 - slopeOffset * ((crackX - geometry.x) / geometry.width);
+      const crackLength = 10 + conditions.roughness * 20;
+      graphics.beginPath();
+      graphics.moveTo(crackX, crackY - crackLength / 2);
+      graphics.lineTo(crackX + (i % 2 ? 5 : -5), crackY);
+      graphics.lineTo(crackX, crackY + crackLength / 2);
+      graphics.strokePath();
+    }
+  }
+
   // Road marking (center dashed line)
-  const markingY = groundY - slopeOffset / 2 + 35;
+  const markingY = groundY - slopeOffset / 2 + roadHeight / 2 - roadCenterOffset;
   graphics.fillStyle(ROAD_COLORS.marking, 0.8);
   for (let i = 0; i < 3; i++) {
     const dashX = geometry.x + 20 + i * 70;
@@ -90,10 +132,12 @@ export function drawRoadSegment(
 
   // Draw obstacles from candle wicks
   if (segment.hasPothole) {
-    drawPothole(graphics, geometry.x + geometry.width * 0.3, groundY + 40, 20);
+    const potholeSize = 15 + segment.roughness * 15;
+    drawPothole(graphics, geometry.x + geometry.width * 0.3, groundY + roadHeight / 2, potholeSize);
   }
   if (segment.hasBump) {
-    drawBump(graphics, geometry.x + geometry.width * 0.7, groundY + 30, 30, 15);
+    const bumpSize = 20 + segment.roughness * 20;
+    drawBump(graphics, geometry.x + geometry.width * 0.7, groundY + roadHeight / 3, bumpSize, bumpSize / 2);
   }
 }
 
@@ -215,6 +259,8 @@ export function drawSky(
 
 /**
  * Draw fog overlay
+ * Implements CONCEPTS.md: VIX → Fog + visibility
+ * Lower visibility = more fog
  */
 export function drawFog(
   graphics: Phaser.GameObjects.Graphics,
@@ -227,6 +273,36 @@ export function drawFog(
   if (style.fillAlpha && style.fillAlpha > 0.05) {
     applyStyle(graphics, style);
     graphics.fillRect(0, 0, width, height);
+  }
+}
+
+/**
+ * Draw wind particles
+ * Implements CONCEPTS.md: VIX → wind effect
+ * Low visibility + stormy = more wind particles
+ */
+export function drawWind(
+  graphics: Phaser.GameObjects.Graphics,
+  width: number,
+  height: number,
+  intensity: number,  // 0-1
+  time: number
+): void {
+  if (intensity < 0.1) return;
+
+  const particleCount = Math.floor(intensity * 30);
+  graphics.lineStyle(1, 0xd1d5db, intensity * 0.4);
+
+  for (let i = 0; i < particleCount; i++) {
+    const seed = i * 2341;
+    const x = ((seed + time * 500) % (width + 100)) - 50;
+    const y = (seed * 3) % height;
+    const length = 20 + (seed % 30);
+
+    graphics.beginPath();
+    graphics.moveTo(x, y);
+    graphics.lineTo(x + length, y + Math.sin(seed) * 5);
+    graphics.strokePath();
   }
 }
 
