@@ -271,6 +271,216 @@ This builds market reflex, not knowledge.
 
 ⸻
 
+📊 Trading Terminal Integration
+
+The game features a **real-time trading terminal** that bridges the gap between simulation and real trading practice.
+
+**Core Concept:**
+The Trading Terminal is your "cockpit dashboard" — allowing you to place orders that directly affect your car's financial state while driving through market terrain.
+
+---
+
+### 🖥 Screen Reading & Data Sources
+
+**TradingView Integration:**
+- Connect to TradingView charts via screen capture or API
+- Real-time price feeds drive terrain generation
+- Candlestick patterns become road obstacles and opportunities
+- Technical indicators appear as road signs and warnings
+
+**Supported Data Sources:**
+| Source | Integration Method | Use Case |
+|--------|-------------------|----------|
+| TradingView | Screen Reader / Webhook | Live charts, indicators |
+| Broker APIs | REST/WebSocket | Real order execution (paper) |
+| CSV/JSON | File import | Historical replay |
+| Manual Input | In-game UI | Educational scenarios |
+
+**Screen Reading Architecture:**
+```
+TradingView Chart → Screen Capture → OCR/Pattern Recognition
+                                          ↓
+                              Price Data Extraction
+                                          ↓
+                              Terrain Generator ← Order Engine
+                                          ↓
+                                    Game Physics
+```
+
+---
+
+### 📝 Order Types & Mechanics
+
+**Available Order Types:**
+
+| Order Type | Game Effect | Learning Objective |
+|------------|-------------|-------------------|
+| **Market Buy** | Instant engine boost | Immediate execution, slippage risk |
+| **Market Sell** | Reduce engine power | Exit positions quickly |
+| **Limit Buy** | Scheduled boost at price level | Patience, price targeting |
+| **Limit Sell** | Auto-sell at target | Taking profits |
+| **Stop Loss** | Auto-brake trigger | Risk management |
+| **Take Profit** | Auto-coast at gains | Locking in wins |
+| **Trailing Stop** | Dynamic brake adjustment | Riding trends safely |
+
+**Order Placement UI:**
+- Press **T** to open Trading Terminal overlay
+- Quick-order buttons on HUD for fast execution
+- Order book visualization shows pending orders
+- Drag-and-drop stop/limit levels on price ladder
+
+---
+
+### 💰 Financial State System
+
+Orders directly modify the car's financial position:
+
+**Portfolio State Variables:**
+```
+Position Size    → Engine displacement (power potential)
+Unrealized P&L   → Current momentum (speed boost/drag)
+Realized P&L     → Fuel reserve (sustainability)
+Margin Used      → Engine stress level
+Available Margin → Brake fluid remaining
+```
+
+**State Transitions on Order Events:**
+
+| Event | Financial Impact | Physics Effect |
+|-------|-----------------|----------------|
+| **Open Long** | +Position, -Cash, +Margin | Engine power up, brakes weaker |
+| **Open Short** | +Short Position, -Margin | Reverse gear engaged |
+| **Close @ Profit** | +Realized P&L, +Cash | Fuel tank refilled, smoother ride |
+| **Close @ Loss** | -Realized P&L, -Cash | Engine damage, recovery drag |
+| **Stop Loss Hit** | Limited loss, -Position | Emergency brake, car slows |
+| **Margin Call** | Forced liquidation | Engine failure, coast to stop |
+| **Leverage Increase** | +Margin Used | Turbo activated, less control |
+
+---
+
+### 📈 P&L Visualization
+
+**Real-Time Feedback:**
+- **Green glow** around car = Unrealized profit
+- **Red warning lights** = Unrealized loss
+- **P&L ticker** on dashboard shows live changes
+- **Equity curve** rendered as "tire tracks" behind car
+
+**Order Execution Feedback:**
+- **Order placed**: Indicator light blinks
+- **Order filled**: Engine sound change + visual flash
+- **Order rejected**: Warning buzzer + red flash
+- **Partial fill**: Gradual power adjustment
+
+---
+
+### 🎮 Trading Terminal Controls
+
+**Keyboard Shortcuts:**
+| Key | Action |
+|-----|--------|
+| T | Toggle Trading Terminal |
+| B | Quick Market Buy |
+| S | Quick Market Sell |
+| L | Place Limit Order |
+| X | Cancel all pending orders |
+| P | Show/hide P&L panel |
+| O | Open order book |
+
+**Order Sizing:**
+- Use number keys (1-9) to set position size as % of capital
+- **0** = Close entire position
+- **Shift + number** = Leverage multiplier
+
+---
+
+### 🧪 Learning Scenarios
+
+**Tutorial Missions for Order Types:**
+
+1. **"First Trade"** - Place a market buy, watch position open
+2. **"The Stop Loss"** - Set stop loss, survive a mini-crash
+3. **"Limit Order Patience"** - Wait for price, get better entry
+4. **"Trailing the Trend"** - Ride uphill with trailing stop
+5. **"Leverage Trap"** - Experience margin call in safe environment
+6. **"Scale In/Out"** - Partial position management
+
+**Skill Challenges:**
+- Execute 10 trades with < 2% slippage
+- Survive a 20% drawdown with proper stops
+- Capture a trend with trailing stop (no manual exit)
+- Close position before margin call triggers
+
+---
+
+### 📊 Trade Journal & Analytics
+
+**Automatic Trade Logging:**
+- Every order timestamped and recorded
+- Entry/exit prices with road position
+- Win rate, average win/loss calculated
+- Emotional state indicators (were you speeding when you traded?)
+
+**Post-Game Analysis:**
+```
+Trade #  | Type   | Entry  | Exit   | P&L    | Road Condition
+---------|--------|--------|--------|--------|---------------
+1        | Long   | 100.50 | 105.20 | +4.7%  | Uphill smooth
+2        | Long   | 108.00 | 102.00 | -5.5%  | Peak → crash
+3        | Short  | 101.00 | 95.00  | +5.9%  | Downhill
+```
+
+**Learning Insights Generated:**
+- "You tend to buy at peaks (uphill exhaustion)"
+- "Your stops are too tight for this volatility"
+- "You exit winners too early, losers too late"
+
+---
+
+### 🔗 External Platform Integration
+
+**Paper Trading Mode:**
+- Connect to broker paper trading accounts
+- Real order flow, fake money
+- Practice with real market conditions
+
+**Supported Platforms:**
+- TradingView (via webhooks/alerts)
+- Interactive Brokers (paper account)
+- Alpaca Markets (paper trading API)
+- Binance Testnet (crypto)
+
+**Webhook Format:**
+```json
+{
+  "action": "buy",
+  "symbol": "AAPL",
+  "quantity": 10,
+  "order_type": "market",
+  "source": "tradingview_alert"
+}
+```
+
+---
+
+### ⚠️ Risk Warnings (Built Into Game)
+
+The terminal enforces realistic trading constraints:
+
+- **Slippage simulation** - Market orders fill at worse prices in volatility
+- **Latency** - Orders take 100-500ms to execute (no instant fills)
+- **Partial fills** - Large orders may fill gradually
+- **Gap risk** - Price can jump past your stop loss
+- **Overnight risk** - Holding through session close has gap exposure
+
+**Unrealistic Behaviors Prevented:**
+- No retroactive order placement
+- No modifying filled orders
+- No unlimited buying power
+- No ignoring margin requirements
+
+⸻
+
 🚀 This Can Become a Platform
 
 Future extensions:
@@ -278,5 +488,8 @@ Future extensions:
 	•	AI co-driver strategies
 	•	Real-time market mode
 	•	Personal portfolio replay
+	•	**Live Trading Terminal with real broker connections**
+	•	**Social trading - copy other drivers' orders**
+	•	**AI trading bot as co-pilot**
 
 This is Miro-meets-TradingView-meets-F1, but 
