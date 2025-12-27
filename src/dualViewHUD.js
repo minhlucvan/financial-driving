@@ -1,5 +1,5 @@
 /**
- * DualViewHUD - Split-screen Trading Terminal Interface
+ * DualViewHUD - Responsive Split-screen Trading Terminal Interface
  *
  * CHART VIEW (Top): Candlestick chart where you SEE and DRAW orders
  * DRIVE VIEW (Bottom): Accumulated returns road where you FEEL the market
@@ -8,13 +8,18 @@
  * - Orders drawn on chart appear as road elements
  * - Current candle highlighted on chart matches car position
  * - P&L shown on both views
+ *
+ * RESPONSIVE DESIGN:
+ * - All positions calculated as percentages of screen size
+ * - Font sizes scale with screen dimensions
+ * - Adapts to different aspect ratios
  */
 
 // View modes
 const VIEW_MODES = {
-    SPLIT: { name: 'Split View', chartRatio: 0.3, key: 'split' },
-    CHART_FOCUS: { name: 'Chart Focus', chartRatio: 0.7, key: 'chart' },
-    DRIVE_FOCUS: { name: 'Drive Focus', chartRatio: 0.15, key: 'drive' },
+    SPLIT: { name: 'Split View', chartRatio: 0.25, key: 'split' },
+    CHART_FOCUS: { name: 'Chart Focus', chartRatio: 0.4, key: 'chart' },
+    DRIVE_FOCUS: { name: 'Drive Focus', chartRatio: 0.12, key: 'drive' },
     FULL_IMMERSION: { name: 'Full Immersion', chartRatio: 0, key: 'immersion' }
 };
 
@@ -23,6 +28,9 @@ class DualViewHUD {
         this.scene = scene;
         this.currentMode = VIEW_MODES.SPLIT;
         this.modeIndex = 0;
+
+        // Responsive sizing - calculate based on screen dimensions
+        this.layout = this.calculateLayout();
 
         // === CHART VIEW ELEMENTS ===
         this.chartView = {
@@ -48,31 +56,70 @@ class DualViewHUD {
 
         // === DRIVE VIEW OVERLAY ===
         this.driveView = {
-            returnLevel: null,        // Current return % marker
-            stopLossLine: null,       // Horizontal SL indicator
-            takeProfitLine: null,     // Horizontal TP indicator
-            entryLine: null,          // Entry price line
-            pnlGlow: null            // P&L glow around car
+            returnLevel: null,
+            stopLossLine: null,
+            takeProfitLine: null,
+            entryLine: null,
+            pnlGlow: null
         };
 
         // === SYNC ELEMENTS ===
-        this.syncMarker = null;       // Shows connection between views
+        this.syncMarker = null;
         this.syncLine = null;
-
-        // Chart display settings
-        this.chartSettings = {
-            candleWidth: 8,
-            candleSpacing: 2,
-            maxCandles: 50,
-            chartHeight: 150,
-            volumeHeight: 30
-        };
 
         // Cached data
         this.candleData = [];
         this.visibleRange = { start: 0, end: 50 };
 
         this.initialize();
+    }
+
+    /**
+     * Calculate responsive layout dimensions
+     */
+    calculateLayout() {
+        const sw = screen_width;
+        const sh = screen_height;
+
+        // Base scale factor for fonts and elements
+        const scaleFactor = Math.min(sw / 1536, sh / 864);
+
+        return {
+            // Chart panel (top-right, avoiding existing HUDs)
+            chart: {
+                x: sw * 0.55,              // Start at 55% from left
+                y: sh * 0.02,              // 2% from top
+                width: sw * 0.43,          // 43% of screen width
+                height: sh * 0.22,         // 22% of screen height
+                padding: sw * 0.01
+            },
+
+            // Trading panel (right side, below chart)
+            trading: {
+                x: sw * 0.82,              // 82% from left
+                y: sh * 0.26,              // Below chart
+                width: sw * 0.16,          // 16% of screen width
+                height: sh * 0.35          // 35% of screen height
+            },
+
+            // Font sizes (scaled)
+            fonts: {
+                tiny: Math.max(8, Math.floor(10 * scaleFactor)),
+                small: Math.max(9, Math.floor(11 * scaleFactor)),
+                normal: Math.max(10, Math.floor(12 * scaleFactor)),
+                medium: Math.max(11, Math.floor(14 * scaleFactor)),
+                large: Math.max(12, Math.floor(16 * scaleFactor)),
+                xlarge: Math.max(14, Math.floor(20 * scaleFactor))
+            },
+
+            // Element sizes
+            candleWidth: Math.max(4, Math.floor(6 * scaleFactor)),
+            candleSpacing: Math.max(1, Math.floor(2 * scaleFactor)),
+            maxCandles: Math.floor(sw * 0.035),  // ~50-60 candles
+
+            // Scale factor for other elements
+            scale: scaleFactor
+        };
     }
 
     initialize() {
@@ -88,43 +135,45 @@ class DualViewHUD {
     }
 
     // ========================================
-    // CHART VIEW (Top Panel)
+    // CHART VIEW (Top-Right Panel)
     // ========================================
 
     createChartView() {
-        const chartY = 10;
-        const chartWidth = screen_width - 220;  // Leave room for trading panel
-        const chartHeight = this.chartSettings.chartHeight;
+        const l = this.layout;
+        const c = l.chart;
 
         // Background panel
         this.chartView.background = this.scene.add.graphics();
         this.chartView.background.setScrollFactor(0).setDepth(900);
 
-        this.chartView.background.fillStyle(0x1a1a2e, 0.95);
-        this.chartView.background.fillRoundedRect(10, chartY, chartWidth, chartHeight + 40, 8);
-
-        // Border
-        this.chartView.background.lineStyle(2, 0x4488ff, 0.5);
-        this.chartView.background.strokeRoundedRect(10, chartY, chartWidth, chartHeight + 40, 8);
+        this.drawChartBackground();
 
         // Title
-        this.chartView.title = this.scene.add.text(20, chartY + 5, 'CHART VIEW', {
+        this.chartView.title = this.scene.add.text(c.x + c.padding, c.y + c.padding, 'CHART', {
             fontFamily: 'monospace',
-            fontSize: '11px',
+            fontSize: l.fonts.small + 'px',
             color: '#4488ff'
         }).setScrollFactor(0).setDepth(901);
 
         // Symbol and price
-        this.chartView.symbolText = this.scene.add.text(100, chartY + 5, 'SPY 15m', {
+        this.chartView.symbolText = this.scene.add.text(c.x + c.width * 0.15, c.y + c.padding, 'SPY', {
             fontFamily: 'monospace',
-            fontSize: '11px',
+            fontSize: l.fonts.small + 'px',
             color: '#ffffff'
         }).setScrollFactor(0).setDepth(901);
 
-        this.chartView.priceText = this.scene.add.text(chartWidth - 80, chartY + 5, '$0.00', {
+        this.chartView.priceText = this.scene.add.text(c.x + c.width - c.padding * 8, c.y + c.padding, '$0.00', {
             fontFamily: 'monospace',
-            fontSize: '11px',
+            fontSize: l.fonts.small + 'px',
             color: '#44ff44'
+        }).setScrollFactor(0).setDepth(901);
+
+        // Return display
+        this.chartView.returnText = this.scene.add.text(c.x + c.width * 0.5, c.y + c.padding, '0%', {
+            fontFamily: 'monospace',
+            fontSize: l.fonts.normal + 'px',
+            fontStyle: 'bold',
+            color: '#ffffff'
         }).setScrollFactor(0).setDepth(901);
 
         // Candlestick graphics
@@ -144,6 +193,28 @@ class DualViewHUD {
         this.chartView.priceScale.setScrollFactor(0).setDepth(901);
     }
 
+    drawChartBackground() {
+        const c = this.layout.chart;
+
+        this.chartView.background.clear();
+
+        // Semi-transparent dark background
+        this.chartView.background.fillStyle(0x0a0a14, 0.9);
+        this.chartView.background.fillRoundedRect(c.x, c.y, c.width, c.height, 6);
+
+        // Border
+        this.chartView.background.lineStyle(1, 0x4488ff, 0.4);
+        this.chartView.background.strokeRoundedRect(c.x, c.y, c.width, c.height, 6);
+
+        // Grid lines (subtle)
+        this.chartView.background.lineStyle(1, 0x333366, 0.2);
+        const gridSpacing = c.height / 5;
+        for (let i = 1; i < 5; i++) {
+            const y = c.y + i * gridSpacing;
+            this.chartView.background.lineBetween(c.x + 5, y, c.x + c.width - 5, y);
+        }
+    }
+
     /**
      * Update chart view with market data
      */
@@ -161,8 +232,9 @@ class DualViewHUD {
         const data = marketDataLoader.currentDataset.data;
         const currentIdx = marketTerrainGenerator.currentIndex;
 
-        // Calculate visible range (show candles leading up to current)
-        const startIdx = Math.max(0, currentIdx - this.chartSettings.maxCandles);
+        // Calculate visible range
+        const maxCandles = this.layout.maxCandles;
+        const startIdx = Math.max(0, currentIdx - maxCandles);
         const endIdx = currentIdx;
 
         if (endIdx <= startIdx) return;
@@ -177,13 +249,16 @@ class DualViewHUD {
         const priceRange = maxPrice - minPrice;
         if (priceRange <= 0) return;
 
-        const chartX = 30;
-        const chartY = 30;
-        const chartWidth = screen_width - 260;
-        const chartHeight = this.chartSettings.chartHeight;
+        const l = this.layout;
+        const c = l.chart;
 
-        const candleWidth = this.chartSettings.candleWidth;
-        const candleSpacing = this.chartSettings.candleSpacing;
+        const chartX = c.x + c.padding * 2;
+        const chartY = c.y + c.height * 0.15;  // Leave room for header
+        const chartWidth = c.width - c.padding * 6;
+        const chartHeight = c.height * 0.75;
+
+        const candleWidth = l.candleWidth;
+        const candleSpacing = l.candleSpacing;
         const totalCandleWidth = candleWidth + candleSpacing;
 
         // Helper to convert price to Y coordinate
@@ -192,9 +267,13 @@ class DualViewHUD {
         };
 
         // Draw candles
+        const candleCount = endIdx - startIdx;
+        const actualCandleWidth = Math.min(candleWidth, (chartWidth / candleCount) - candleSpacing);
+
         for (let i = startIdx; i < endIdx && i < data.length; i++) {
             const candle = data[i];
-            const x = chartX + (i - startIdx) * totalCandleWidth;
+            const candleIndex = i - startIdx;
+            const x = chartX + candleIndex * (actualCandleWidth + candleSpacing);
 
             const isGreen = candle.close >= candle.open;
             const bodyColor = isGreen ? 0x44cc44 : 0xcc4444;
@@ -206,45 +285,52 @@ class DualViewHUD {
             const lowY = priceToY(candle.low);
 
             // Wick
-            this.chartView.candleGraphics.lineStyle(1, wickColor, 0.8);
+            this.chartView.candleGraphics.lineStyle(1, wickColor, 0.7);
             this.chartView.candleGraphics.lineBetween(
-                x + candleWidth / 2, highY,
-                x + candleWidth / 2, lowY
+                x + actualCandleWidth / 2, highY,
+                x + actualCandleWidth / 2, lowY
             );
 
             // Body
             const bodyTop = Math.min(openY, closeY);
-            const bodyHeight = Math.abs(closeY - openY) || 1;
+            const bodyHeight = Math.max(1, Math.abs(closeY - openY));
 
-            this.chartView.candleGraphics.fillStyle(bodyColor, 1);
-            this.chartView.candleGraphics.fillRect(x, bodyTop, candleWidth, bodyHeight);
+            this.chartView.candleGraphics.fillStyle(bodyColor, 0.9);
+            this.chartView.candleGraphics.fillRect(x, bodyTop, actualCandleWidth, bodyHeight);
         }
 
         // Highlight current candle
-        if (currentIdx > 0 && currentIdx <= data.length) {
-            const x = chartX + (Math.min(endIdx - 1, data.length - 1) - startIdx) * totalCandleWidth;
-            this.chartView.candleGraphics.lineStyle(2, 0xffff00, 1);
-            this.chartView.candleGraphics.strokeRect(x - 2, chartY, candleWidth + 4, chartHeight);
+        if (candleCount > 0) {
+            const lastX = chartX + (candleCount - 1) * (actualCandleWidth + candleSpacing);
+            this.chartView.candleGraphics.lineStyle(2, 0xffff00, 0.8);
+            this.chartView.candleGraphics.strokeRect(lastX - 1, chartY, actualCandleWidth + 2, chartHeight);
         }
 
         // Draw orders on chart
         this.drawOrdersOnChart(chartX, chartY, chartWidth, chartHeight, minPrice, maxPrice, priceToY);
 
         // Update current position indicator
-        this.drawPositionOnChart(chartX, chartY, chartWidth, chartHeight, priceToY);
+        this.drawPositionOnChart(chartX, chartY, chartWidth, chartHeight, priceToY, minPrice, maxPrice);
 
-        // Update price labels
-        this.updatePriceScale(chartY, chartHeight, minPrice, maxPrice, priceToY);
-
-        // Update symbol and price display
+        // Update display text
         const currentCandle = data[Math.min(currentIdx - 1, data.length - 1)];
         if (currentCandle) {
             const info = marketDataLoader.getDatasetInfo(currentMarketDataKey);
-            this.chartView.symbolText.setText(`${info?.symbol || 'SPY'} | ${currentCandle.date || ''}`);
+            this.chartView.symbolText.setText(`${info?.symbol || 'SPY'}`);
 
             const priceColor = currentCandle.close >= currentCandle.open ? '#44ff44' : '#ff4444';
             this.chartView.priceText.setText(`$${currentCandle.close.toFixed(2)}`);
             this.chartView.priceText.setColor(priceColor);
+
+            // Update return display
+            const metadata = marketTerrainGenerator.getTerrainMetadata();
+            if (metadata && metadata.cumulativeReturn !== undefined) {
+                const ret = metadata.cumulativeReturn;
+                const retColor = ret >= 0 ? '#44ff44' : '#ff4444';
+                const retSign = ret >= 0 ? '+' : '';
+                this.chartView.returnText.setText(`${retSign}${ret.toFixed(1)}%`);
+                this.chartView.returnText.setColor(retColor);
+            }
         }
     }
 
@@ -256,88 +342,65 @@ class DualViewHUD {
 
         const orders = tradingTerminal.getPendingOrders();
         const priceRange = maxPrice - minPrice;
+        if (priceRange <= 0) return;
 
         for (const order of orders) {
             const orderType = ORDER_TYPES[order.type];
 
-            // Convert return level to approximate price (for visualization)
-            // This is simplified - in real implementation, you'd map properly
-            const pricePct = (order.priceLevel + 50) / 100;  // Normalize to 0-1
-            const price = minPrice + pricePct * priceRange;
-            const y = priceToY(price);
-
-            if (y < chartY || y > chartY + chartHeight) continue;
+            // Convert return level to price position
+            const currentReturn = tradingTerminal.getCurrentReturn();
+            const returnDiff = order.priceLevel - currentReturn;
+            const pricePct = 0.5 + returnDiff / 20;  // Map ±10% to 0-1
+            const clampedPct = Math.max(0.05, Math.min(0.95, pricePct));
+            const y = chartY + chartHeight * (1 - clampedPct);
 
             // Draw order line
-            this.chartView.orderGraphics.lineStyle(2, orderType.color, 0.8);
+            this.chartView.orderGraphics.lineStyle(2, orderType.color, 0.6);
             this.chartView.orderGraphics.lineBetween(chartX, y, chartX + chartWidth, y);
 
-            // Order type indicator
-            this.chartView.orderGraphics.fillStyle(orderType.color, 1);
-            this.chartView.orderGraphics.fillCircle(chartX + chartWidth + 10, y, 5);
-
-            // Dashed line effect
-            for (let dx = 0; dx < chartWidth; dx += 10) {
-                this.chartView.orderGraphics.fillStyle(orderType.color, 0.3);
-                this.chartView.orderGraphics.fillRect(chartX + dx, y - 1, 5, 2);
+            // Dashed effect
+            for (let dx = 0; dx < chartWidth; dx += 15) {
+                this.chartView.orderGraphics.fillStyle(orderType.color, 0.2);
+                this.chartView.orderGraphics.fillRect(chartX + dx, y - 1, 8, 2);
             }
+
+            // Order type indicator on right
+            this.chartView.orderGraphics.fillStyle(orderType.color, 0.9);
+            this.chartView.orderGraphics.fillCircle(chartX + chartWidth + 8, y, 4);
         }
     }
 
     /**
      * Draw current position indicator on chart
      */
-    drawPositionOnChart(chartX, chartY, chartWidth, chartHeight, priceToY) {
+    drawPositionOnChart(chartX, chartY, chartWidth, chartHeight, priceToY, minPrice, maxPrice) {
         if (!tradingTerminal || !tradingTerminal.position.isOpen) return;
 
         const position = tradingTerminal.position;
         const pnl = position.unrealizedPnL;
+        const currentReturn = tradingTerminal.getCurrentReturn();
 
-        // Entry line (where position was opened)
-        const entryY = chartY + chartHeight / 2;  // Simplified positioning
+        // Entry line position
+        const entryDiff = position.entryReturn - currentReturn;
+        const entryPct = 0.5 + entryDiff / 20;
+        const clampedPct = Math.max(0.1, Math.min(0.9, entryPct));
+        const entryY = chartY + chartHeight * (1 - clampedPct);
 
         // P&L zone highlight
+        const currentY = chartY + chartHeight * 0.5;
         if (pnl > 0) {
             this.chartView.positionGraphics.fillStyle(0x44ff44, 0.1);
-            this.chartView.positionGraphics.fillRect(chartX, entryY - 20, chartWidth, 20);
+            this.chartView.positionGraphics.fillRect(chartX, Math.min(entryY, currentY),
+                chartWidth, Math.abs(currentY - entryY));
         } else if (pnl < 0) {
             this.chartView.positionGraphics.fillStyle(0xff4444, 0.1);
-            this.chartView.positionGraphics.fillRect(chartX, entryY, chartWidth, 20);
+            this.chartView.positionGraphics.fillRect(chartX, Math.min(entryY, currentY),
+                chartWidth, Math.abs(currentY - entryY));
         }
 
         // Entry line
-        this.chartView.positionGraphics.lineStyle(2, 0x4488ff, 1);
+        this.chartView.positionGraphics.lineStyle(2, 0x4488ff, 0.8);
         this.chartView.positionGraphics.lineBetween(chartX, entryY, chartX + chartWidth, entryY);
-
-        // Position label
-        const typeIcon = position.type === 'long' ? '📈' : '📉';
-        const pnlStr = pnl >= 0 ? `+${pnl.toFixed(2)}%` : `${pnl.toFixed(2)}%`;
-        const pnlColor = pnl >= 0 ? '#44ff44' : '#ff4444';
-
-        // Text will be updated in trading panel instead
-    }
-
-    /**
-     * Update price scale on right side of chart
-     */
-    updatePriceScale(chartY, chartHeight, minPrice, maxPrice, priceToY) {
-        this.chartView.priceScale.clear();
-
-        const scaleX = screen_width - 230;
-        const steps = 5;
-        const priceStep = (maxPrice - minPrice) / steps;
-
-        for (let i = 0; i <= steps; i++) {
-            const price = minPrice + i * priceStep;
-            const y = priceToY(price);
-
-            // Tick mark
-            this.chartView.priceScale.lineStyle(1, 0x666666, 0.5);
-            this.chartView.priceScale.lineBetween(scaleX - 5, y, scaleX, y);
-
-            // Price label (using graphics for simplicity)
-            this.chartView.priceScale.fillStyle(0x888888, 1);
-        }
     }
 
     // ========================================
@@ -345,109 +408,114 @@ class DualViewHUD {
     // ========================================
 
     createTradingPanel() {
-        const panelX = screen_width - 200;
-        const panelY = 10;
-        const panelWidth = 190;
-        const panelHeight = 280;
+        const l = this.layout;
+        const t = l.trading;
 
         // Background
         this.tradingPanel.background = this.scene.add.graphics();
         this.tradingPanel.background.setScrollFactor(0).setDepth(900);
 
-        this.tradingPanel.background.fillStyle(0x1a1a2e, 0.95);
-        this.tradingPanel.background.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 8);
+        this.tradingPanel.background.fillStyle(0x0a0a14, 0.9);
+        this.tradingPanel.background.fillRoundedRect(t.x, t.y, t.width, t.height, 6);
 
-        this.tradingPanel.background.lineStyle(2, 0x44ff44, 0.5);
-        this.tradingPanel.background.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 8);
+        this.tradingPanel.background.lineStyle(1, 0x44ff44, 0.4);
+        this.tradingPanel.background.strokeRoundedRect(t.x, t.y, t.width, t.height, 6);
+
+        const padding = t.width * 0.06;
+        const lineHeight = t.height * 0.08;
+        let yPos = t.y + padding;
 
         // Title
-        this.scene.add.text(panelX + 10, panelY + 8, 'TRADING TERMINAL', {
+        this.scene.add.text(t.x + padding, yPos, 'TRADING', {
             fontFamily: 'monospace',
-            fontSize: '11px',
+            fontSize: l.fonts.small + 'px',
             color: '#44ff44'
         }).setScrollFactor(0).setDepth(901);
 
+        yPos += lineHeight * 1.2;
+
         // Position display
-        this.tradingPanel.positionText = this.scene.add.text(panelX + 10, panelY + 30, 'No Position', {
+        this.tradingPanel.positionText = this.scene.add.text(t.x + padding, yPos, 'No Position', {
             fontFamily: 'monospace',
-            fontSize: '12px',
+            fontSize: l.fonts.normal + 'px',
             color: '#888888'
         }).setScrollFactor(0).setDepth(901);
 
+        yPos += lineHeight;
+
         // P&L display
-        this.tradingPanel.pnlText = this.scene.add.text(panelX + 10, panelY + 50, 'P&L: $0.00', {
+        this.tradingPanel.pnlText = this.scene.add.text(t.x + padding, yPos, 'P&L: $0', {
             fontFamily: 'monospace',
-            fontSize: '14px',
+            fontSize: l.fonts.medium + 'px',
             fontStyle: 'bold',
             color: '#ffffff'
         }).setScrollFactor(0).setDepth(901);
 
+        yPos += lineHeight * 1.1;
+
         // Unrealized P&L
-        this.tradingPanel.unrealizedText = this.scene.add.text(panelX + 10, panelY + 70, 'Unrealized: 0%', {
+        this.tradingPanel.unrealizedText = this.scene.add.text(t.x + padding, yPos, 'Unreal: --', {
             fontFamily: 'monospace',
-            fontSize: '11px',
+            fontSize: l.fonts.small + 'px',
             color: '#888888'
         }).setScrollFactor(0).setDepth(901);
 
+        yPos += lineHeight;
+
         // Orders count
-        this.tradingPanel.ordersText = this.scene.add.text(panelX + 10, panelY + 95, 'Orders: 0 pending', {
+        this.tradingPanel.ordersText = this.scene.add.text(t.x + padding, yPos, 'Orders: 0', {
             fontFamily: 'monospace',
-            fontSize: '11px',
+            fontSize: l.fonts.small + 'px',
             color: '#aaaaaa'
         }).setScrollFactor(0).setDepth(901);
 
+        yPos += lineHeight;
+
         // Combo display
-        this.tradingPanel.comboText = this.scene.add.text(panelX + 10, panelY + 115, 'Streak: 0', {
+        this.tradingPanel.comboText = this.scene.add.text(t.x + padding, yPos, 'Streak: 0', {
             fontFamily: 'monospace',
-            fontSize: '11px',
+            fontSize: l.fonts.small + 'px',
             color: '#ffcc00'
         }).setScrollFactor(0).setDepth(901);
 
+        yPos += lineHeight;
+
         // Win rate
-        this.tradingPanel.winRateText = this.scene.add.text(panelX + 10, panelY + 135, 'Win Rate: 0%', {
+        this.tradingPanel.winRateText = this.scene.add.text(t.x + padding, yPos, 'Win: 0%', {
             fontFamily: 'monospace',
-            fontSize: '11px',
+            fontSize: l.fonts.small + 'px',
             color: '#888888'
         }).setScrollFactor(0).setDepth(901);
 
-        // Quick action buttons (visual only - controls are keyboard)
-        const buttonY = panelY + 165;
+        yPos += lineHeight * 1.2;
 
-        this.scene.add.text(panelX + 10, buttonY, 'QUICK ACTIONS:', {
+        // Divider
+        this.tradingPanel.background.lineStyle(1, 0x444466, 0.5);
+        this.tradingPanel.background.lineBetween(t.x + padding, yPos, t.x + t.width - padding, yPos);
+
+        yPos += lineHeight * 0.5;
+
+        // Quick action hints
+        this.scene.add.text(t.x + padding, yPos, 'B:Buy X:Sell', {
             fontFamily: 'monospace',
-            fontSize: '10px',
-            color: '#666666'
+            fontSize: l.fonts.tiny + 'px',
+            color: '#44ff88'
         }).setScrollFactor(0).setDepth(901);
 
-        this.scene.add.text(panelX + 10, buttonY + 15, 'B: Buy  S: Sell', {
-            fontFamily: 'monospace',
-            fontSize: '11px',
-            color: '#44ff44'
-        }).setScrollFactor(0).setDepth(901);
+        yPos += lineHeight * 0.8;
 
-        this.scene.add.text(panelX + 10, buttonY + 30, 'L: Limit  X: Cancel', {
+        this.scene.add.text(t.x + padding, yPos, 'P:TP O:SL', {
             fontFamily: 'monospace',
-            fontSize: '11px',
+            fontSize: l.fonts.tiny + 'px',
             color: '#ffaa44'
         }).setScrollFactor(0).setDepth(901);
 
-        this.scene.add.text(panelX + 10, buttonY + 45, '1-9: Position Size', {
-            fontFamily: 'monospace',
-            fontSize: '11px',
-            color: '#4488ff'
-        }).setScrollFactor(0).setDepth(901);
-
-        // Current return display
-        this.tradingPanel.returnText = this.scene.add.text(panelX + 10, buttonY + 70, 'Return: 0%', {
-            fontFamily: 'monospace',
-            fontSize: '12px',
-            color: '#ffffff'
-        }).setScrollFactor(0).setDepth(901);
+        yPos += lineHeight * 0.8;
 
         // View mode indicator
-        this.tradingPanel.viewModeText = this.scene.add.text(panelX + 10, buttonY + 90, '[C] Split View', {
+        this.tradingPanel.viewModeText = this.scene.add.text(t.x + padding, yPos, '[C] Split', {
             fontFamily: 'monospace',
-            fontSize: '10px',
+            fontSize: l.fonts.tiny + 'px',
             color: '#666666'
         }).setScrollFactor(0).setDepth(901);
     }
@@ -465,8 +533,8 @@ class DualViewHUD {
 
         // Position status
         if (position.isOpen) {
-            const typeIcon = position.type === 'long' ? '📈' : '📉';
-            this.tradingPanel.positionText.setText(`${typeIcon} ${position.type.toUpperCase()} @ ${position.entryReturn.toFixed(1)}%`);
+            const typeIcon = position.type === 'long' ? '▲' : '▼';
+            this.tradingPanel.positionText.setText(`${typeIcon} ${position.type.toUpperCase()}`);
             this.tradingPanel.positionText.setColor('#ffffff');
         } else {
             this.tradingPanel.positionText.setText('No Position');
@@ -477,7 +545,7 @@ class DualViewHUD {
         const totalPnL = position.realizedPnL;
         const pnlColor = totalPnL >= 0 ? '#44ff44' : '#ff4444';
         const pnlSign = totalPnL >= 0 ? '+' : '';
-        this.tradingPanel.pnlText.setText(`P&L: ${pnlSign}${totalPnL.toFixed(2)}%`);
+        this.tradingPanel.pnlText.setText(`P&L: ${pnlSign}${totalPnL.toFixed(1)}%`);
         this.tradingPanel.pnlText.setColor(pnlColor);
 
         // Unrealized P&L
@@ -485,19 +553,19 @@ class DualViewHUD {
             const uPnL = position.unrealizedPnL;
             const uColor = uPnL >= 0 ? '#88ff88' : '#ff8888';
             const uSign = uPnL >= 0 ? '+' : '';
-            this.tradingPanel.unrealizedText.setText(`Unrealized: ${uSign}${uPnL.toFixed(2)}%`);
+            this.tradingPanel.unrealizedText.setText(`Unreal: ${uSign}${uPnL.toFixed(1)}%`);
             this.tradingPanel.unrealizedText.setColor(uColor);
         } else {
-            this.tradingPanel.unrealizedText.setText('Unrealized: --');
+            this.tradingPanel.unrealizedText.setText('Unreal: --');
             this.tradingPanel.unrealizedText.setColor('#888888');
         }
 
         // Orders
-        this.tradingPanel.ordersText.setText(`Orders: ${data.orders.pending} pending`);
+        this.tradingPanel.ordersText.setText(`Orders: ${data.orders.pending}`);
 
         // Combo
         if (combo.count > 0) {
-            this.tradingPanel.comboText.setText(`Streak: ${combo.count} 🔥 (${combo.multiplier.toFixed(1)}x)`);
+            this.tradingPanel.comboText.setText(`Streak: ${combo.count}x`);
             this.tradingPanel.comboText.setColor('#ffcc00');
         } else {
             this.tradingPanel.comboText.setText('Streak: 0');
@@ -505,17 +573,10 @@ class DualViewHUD {
         }
 
         // Win rate
-        this.tradingPanel.winRateText.setText(`Win Rate: ${stats.winRate.toFixed(1)}% (${stats.winningTrades}/${stats.totalTrades})`);
-
-        // Current return
-        const currentReturn = data.currentReturn;
-        const retColor = currentReturn >= 0 ? '#44ff44' : '#ff4444';
-        const retSign = currentReturn >= 0 ? '+' : '';
-        this.tradingPanel.returnText.setText(`Return: ${retSign}${currentReturn.toFixed(2)}%`);
-        this.tradingPanel.returnText.setColor(retColor);
+        this.tradingPanel.winRateText.setText(`Win: ${stats.winRate.toFixed(0)}%`);
 
         // View mode
-        this.tradingPanel.viewModeText.setText(`[C] ${this.currentMode.name}`);
+        this.tradingPanel.viewModeText.setText(`[C] ${this.currentMode.name.split(' ')[0]}`);
     }
 
     // ========================================
@@ -523,7 +584,7 @@ class DualViewHUD {
     // ========================================
 
     createDriveViewOverlay() {
-        // Return level marker (horizontal line showing current accumulated return)
+        // Return level marker
         this.driveView.returnMarker = this.scene.add.graphics();
         this.driveView.returnMarker.setDepth(180);
 
@@ -531,7 +592,7 @@ class DualViewHUD {
         this.driveView.pnlGlow = this.scene.add.graphics();
         this.driveView.pnlGlow.setDepth(90);
 
-        // Entry line (shows where position was opened)
+        // Entry line
         this.driveView.entryGraphics = this.scene.add.graphics();
         this.driveView.entryGraphics.setDepth(175);
 
@@ -557,61 +618,35 @@ class DualViewHUD {
 
         const carX = vehicle.mainBody.x;
         const carY = vehicle.mainBody.y;
-        const camera = this.scene.cameras.main;
 
-        // === RETURN LEVEL MARKER ===
-        // Horizontal line showing 0% return level (baseline)
-        const baselineY = carY;  // Car position represents current return
-
-        // Draw return level indicators
-        const levelsToShow = [-10, -5, 0, 5, 10, 20];
-        for (const level of levelsToShow) {
-            const yOffset = -level * 8;  // 8 pixels per 1%
-            const lineY = baselineY + yOffset;
-
-            if (Math.abs(level) < 1) {
-                // 0% line - brighter
-                this.driveView.returnMarker.lineStyle(2, 0xffff00, 0.5);
-            } else if (level > 0) {
-                // Positive levels - green
-                this.driveView.returnMarker.lineStyle(1, 0x44ff44, 0.3);
-            } else {
-                // Negative levels - red
-                this.driveView.returnMarker.lineStyle(1, 0xff4444, 0.3);
-            }
-
-            this.driveView.returnMarker.lineBetween(
-                carX - 200, lineY,
-                carX + 400, lineY
-            );
-        }
+        // Scale factor for road elements
+        const scale = this.layout.scale;
 
         // === P&L GLOW AROUND CAR ===
         if (tradingTerminal && tradingTerminal.position.isOpen) {
             const pnl = tradingTerminal.position.unrealizedPnL;
             const glowColor = pnl >= 0 ? 0x44ff44 : 0xff4444;
-            const glowIntensity = Math.min(0.5, Math.abs(pnl) / 20);
+            const glowIntensity = Math.min(0.4, Math.abs(pnl) / 25);
 
             // Outer glow
             this.driveView.pnlGlow.fillStyle(glowColor, glowIntensity * 0.3);
-            this.driveView.pnlGlow.fillCircle(carX, carY, 60);
+            this.driveView.pnlGlow.fillCircle(carX, carY, 50 * scale);
 
             // Inner glow
             this.driveView.pnlGlow.fillStyle(glowColor, glowIntensity * 0.5);
-            this.driveView.pnlGlow.fillCircle(carX, carY, 40);
+            this.driveView.pnlGlow.fillCircle(carX, carY, 30 * scale);
 
             // === ENTRY LEVEL LINE ===
             const entryReturn = tradingTerminal.position.entryReturn;
             const currentReturn = tradingTerminal.getCurrentReturn();
-            const entryYOffset = -(entryReturn - currentReturn) * 8;
+            const entryYOffset = -(entryReturn - currentReturn) * 6 * scale;
             const entryY = carY + entryYOffset;
 
-            this.driveView.entryGraphics.lineStyle(2, 0x4488ff, 0.8);
-            this.driveView.entryGraphics.lineBetween(carX - 300, entryY, carX + 100, entryY);
-
-            // Entry label
-            this.driveView.entryGraphics.fillStyle(0x4488ff, 0.8);
-            this.driveView.entryGraphics.fillRoundedRect(carX - 320, entryY - 10, 50, 20, 4);
+            // Draw entry line (dashed)
+            this.driveView.entryGraphics.lineStyle(2, 0x4488ff, 0.6);
+            for (let x = carX - 200; x < carX + 100; x += 15) {
+                this.driveView.entryGraphics.lineBetween(x, entryY, x + 8, entryY);
+            }
         }
 
         // === STOP LOSS AND TAKE PROFIT LINES ===
@@ -621,37 +656,33 @@ class DualViewHUD {
 
             for (const order of pendingOrders) {
                 const orderType = ORDER_TYPES[order.type];
-                const yOffset = -(order.priceLevel - currentReturn) * 8;
+                const yOffset = -(order.priceLevel - currentReturn) * 6 * scale;
                 const lineY = carY + yOffset;
 
                 if (order.type === 'STOP_LOSS') {
-                    // Red dashed line for stop loss
-                    this.driveView.slGraphics.lineStyle(3, 0xff4444, 0.8);
-
-                    // Dashed line
-                    for (let x = carX - 200; x < carX + 400; x += 20) {
-                        this.driveView.slGraphics.lineBetween(x, lineY, x + 10, lineY);
+                    // Red dashed line
+                    this.driveView.slGraphics.lineStyle(2, 0xff4444, 0.7);
+                    for (let x = carX - 150; x < carX + 300; x += 15) {
+                        this.driveView.slGraphics.lineBetween(x, lineY, x + 8, lineY);
                     }
 
                     // Shield icon
-                    this.driveView.slGraphics.fillStyle(0xff4444, 0.9);
-                    this.driveView.slGraphics.fillCircle(carX + 420, lineY, 10);
+                    this.driveView.slGraphics.fillStyle(0xff4444, 0.8);
+                    this.driveView.slGraphics.fillCircle(carX + 320, lineY, 8 * scale);
                 }
                 else if (order.type === 'TAKE_PROFIT') {
-                    // Green dashed line for take profit
-                    this.driveView.tpGraphics.lineStyle(3, 0x44ff44, 0.8);
-
-                    // Dashed line
-                    for (let x = carX - 200; x < carX + 400; x += 20) {
-                        this.driveView.tpGraphics.lineBetween(x, lineY, x + 10, lineY);
+                    // Green dashed line
+                    this.driveView.tpGraphics.lineStyle(2, 0x44ff44, 0.7);
+                    for (let x = carX - 150; x < carX + 300; x += 15) {
+                        this.driveView.tpGraphics.lineBetween(x, lineY, x + 8, lineY);
                     }
 
                     // Flag icon
-                    this.driveView.tpGraphics.fillStyle(0x44ff44, 0.9);
+                    this.driveView.tpGraphics.fillStyle(0x44ff44, 0.8);
                     this.driveView.tpGraphics.fillTriangle(
-                        carX + 420, lineY - 15,
-                        carX + 440, lineY - 7,
-                        carX + 420, lineY
+                        carX + 320, lineY - 10 * scale,
+                        carX + 335, lineY - 5 * scale,
+                        carX + 320, lineY
                     );
                 }
             }
@@ -663,31 +694,12 @@ class DualViewHUD {
     // ========================================
 
     createSyncElements() {
-        // Sync indicator (shows current candle on chart = car position)
         this.syncMarker = this.scene.add.graphics();
         this.syncMarker.setScrollFactor(0).setDepth(950);
     }
 
     updateSyncElements() {
-        if (!this.syncMarker) return;
-        this.syncMarker.clear();
-
-        // Only show in split or chart focus modes
-        if (this.currentMode === VIEW_MODES.FULL_IMMERSION) return;
-
-        const chartHeight = this.chartSettings.chartHeight * this.currentMode.chartRatio / 0.3;
-        if (chartHeight < 50) return;
-
-        // Draw sync line from chart to edge of screen
-        const syncX = screen_width - 230;
-        const chartBottom = 30 + chartHeight;
-
-        this.syncMarker.lineStyle(1, 0xffff00, 0.3);
-        this.syncMarker.lineBetween(syncX, chartBottom, syncX, chartBottom + 20);
-
-        // Sync indicator text
-        this.syncMarker.fillStyle(0xffff00, 0.7);
-        this.syncMarker.fillCircle(syncX, chartBottom + 25, 4);
+        // Minimal sync indicator - just update if needed
     }
 
     // ========================================
@@ -700,36 +712,49 @@ class DualViewHUD {
     setViewMode(mode) {
         this.currentMode = mode;
 
-        // Adjust chart view visibility and size
-        const chartHeight = this.chartSettings.chartHeight * (mode.chartRatio / 0.3);
+        // Recalculate layout for new mode
+        this.layout = this.calculateLayout();
+
+        // Adjust chart scaling based on mode
+        const chartScale = mode.chartRatio / 0.25;  // Relative to split mode
 
         if (mode === VIEW_MODES.FULL_IMMERSION) {
-            // Hide chart completely
-            this.chartView.background?.setVisible(false);
-            this.chartView.title?.setVisible(false);
-            this.chartView.symbolText?.setVisible(false);
-            this.chartView.priceText?.setVisible(false);
-            this.chartView.candleGraphics?.setVisible(false);
-            this.chartView.orderGraphics?.setVisible(false);
-            this.chartView.positionGraphics?.setVisible(false);
-            this.chartView.priceScale?.setVisible(false);
+            // Hide all HUD elements
+            this.setChartVisibility(false);
+            this.setTradingPanelVisibility(false);
         } else {
-            // Show chart
-            this.chartView.background?.setVisible(true);
-            this.chartView.title?.setVisible(true);
-            this.chartView.symbolText?.setVisible(true);
-            this.chartView.priceText?.setVisible(true);
-            this.chartView.candleGraphics?.setVisible(true);
-            this.chartView.orderGraphics?.setVisible(true);
-            this.chartView.positionGraphics?.setVisible(true);
-            this.chartView.priceScale?.setVisible(true);
+            this.setChartVisibility(true);
+            this.setTradingPanelVisibility(true);
 
-            // Resize chart based on mode
-            this.chartSettings.chartHeight = 150 * (mode.chartRatio / 0.3);
-            this.chartSettings.chartHeight = Math.max(50, Math.min(300, this.chartSettings.chartHeight));
+            // Redraw backgrounds with new sizes
+            this.layout.chart.height = screen_height * 0.22 * chartScale;
+            this.drawChartBackground();
         }
 
         console.log(`View mode: ${mode.name}`);
+    }
+
+    setChartVisibility(visible) {
+        this.chartView.background?.setVisible(visible);
+        this.chartView.title?.setVisible(visible);
+        this.chartView.symbolText?.setVisible(visible);
+        this.chartView.priceText?.setVisible(visible);
+        this.chartView.returnText?.setVisible(visible);
+        this.chartView.candleGraphics?.setVisible(visible);
+        this.chartView.orderGraphics?.setVisible(visible);
+        this.chartView.positionGraphics?.setVisible(visible);
+        this.chartView.priceScale?.setVisible(visible);
+    }
+
+    setTradingPanelVisibility(visible) {
+        this.tradingPanel.background?.setVisible(visible);
+        this.tradingPanel.positionText?.setVisible(visible);
+        this.tradingPanel.pnlText?.setVisible(visible);
+        this.tradingPanel.unrealizedText?.setVisible(visible);
+        this.tradingPanel.ordersText?.setVisible(visible);
+        this.tradingPanel.comboText?.setVisible(visible);
+        this.tradingPanel.winRateText?.setVisible(visible);
+        this.tradingPanel.viewModeText?.setVisible(visible);
     }
 
     /**
@@ -757,10 +782,17 @@ class DualViewHUD {
     }
 
     /**
+     * Handle window resize
+     */
+    onResize() {
+        this.layout = this.calculateLayout();
+        // Would need to recreate elements for full resize support
+    }
+
+    /**
      * Clean up resources
      */
     destroy() {
-        // Destroy all graphics objects
         this.chartView.background?.destroy();
         this.chartView.candleGraphics?.destroy();
         this.chartView.orderGraphics?.destroy();
