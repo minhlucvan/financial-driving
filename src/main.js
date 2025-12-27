@@ -313,6 +313,108 @@ function create ()
         }
     }, this);
 
+    // ========================================
+    // TRADING TERMINAL INITIALIZATION
+    // ========================================
+    tradingTerminal = new TradingTerminal(this);
+
+    // Dual-View HUD
+    dualViewHUD = new DualViewHUD(this);
+
+    // === TRADING CONTROLS ===
+
+    // B: Market Buy
+    var bKey = this.input.keyboard.addKey('B');
+    bKey.on('down', function () {
+        if (gameState !== 'playing') return;
+        if (!tradingTerminal.position.isOpen) {
+            tradingTerminal.marketBuy();
+            console.log('Market Buy executed');
+        } else {
+            console.log('Position already open');
+        }
+    }, this);
+
+    // S key is used for leverage, so use Shift+S or just close with X
+    // X: Close position / Cancel all orders
+    var xKey = this.input.keyboard.addKey('X');
+    xKey.on('down', function () {
+        if (gameState !== 'playing') return;
+        if (tradingTerminal.position.isOpen) {
+            tradingTerminal.marketSell();
+            console.log('Position closed');
+        } else {
+            tradingTerminal.cancelAllOrders();
+            console.log('All orders cancelled');
+        }
+    }, this);
+
+    // L: Place limit order at current - 2%
+    var lKey = this.input.keyboard.addKey('L');
+    lKey.on('down', function () {
+        if (gameState !== 'playing') return;
+        const currentReturn = tradingTerminal.getCurrentReturn();
+        tradingTerminal.limitBuy(currentReturn - 2);
+        console.log('Limit Buy placed at ' + (currentReturn - 2).toFixed(1) + '%');
+    }, this);
+
+    // P: Place take profit at current + 5%
+    var pKey = this.input.keyboard.addKey('P');
+    pKey.on('down', function () {
+        if (gameState !== 'playing') return;
+        if (tradingTerminal.position.isOpen) {
+            const currentReturn = tradingTerminal.getCurrentReturn();
+            tradingTerminal.takeProfit(currentReturn + 5);
+            console.log('Take Profit placed at ' + (currentReturn + 5).toFixed(1) + '%');
+        } else {
+            console.log('No position for take profit');
+        }
+    }, this);
+
+    // O: Place stop loss at current - 3%
+    var oKey = this.input.keyboard.addKey('O');
+    oKey.on('down', function () {
+        if (gameState !== 'playing') return;
+        if (tradingTerminal.position.isOpen) {
+            const currentReturn = tradingTerminal.getCurrentReturn();
+            tradingTerminal.stopLoss(currentReturn - 3);
+            console.log('Stop Loss placed at ' + (currentReturn - 3).toFixed(1) + '%');
+        } else {
+            console.log('No position for stop loss');
+        }
+    }, this);
+
+    // C: Cycle view mode
+    var cKey = this.input.keyboard.addKey('C');
+    cKey.on('down', function () {
+        if (dualViewHUD) {
+            const mode = dualViewHUD.cycleViewMode();
+            console.log('View mode: ' + mode.name);
+        }
+    }, this);
+
+    // Number keys 1-9: Set position size (10% - 90%)
+    for (let i = 1; i <= 9; i++) {
+        const numKey = this.input.keyboard.addKey(String(i));
+        const size = i * 0.1;
+        numKey.on('down', function () {
+            if (tradingTerminal) {
+                tradingTerminal.settings.defaultPositionSize = size;
+                console.log('Position size: ' + (size * 100) + '%');
+            }
+        }, this);
+    }
+
+    // 0: Close entire position
+    var zeroKey = this.input.keyboard.addKey('ZERO');
+    zeroKey.on('down', function () {
+        if (gameState !== 'playing') return;
+        if (tradingTerminal.position.isOpen) {
+            tradingTerminal.marketSell();
+            console.log('Position closed');
+        }
+    }, this);
+
     this.matter.add.mouseSpring();
 
     cursors = this.input.keyboard.createCursorKeys();
@@ -440,7 +542,7 @@ function createMarketHUD(scene) {
         .setScrollFactor(0).setDepth(1000);
 
     // Controls hint (bottom left)
-    scene.add.text(16, screen_height - 55, 'Arrows: Drive | W/S: Leverage | Q/E: Cash Buffer', {
+    scene.add.text(16, screen_height - 70, 'Arrows: Drive | W/S: Leverage | Q/E: Cash Buffer', {
         fontFamily: 'monospace',
         fontSize: '11px',
         color: '#888888',
@@ -448,7 +550,15 @@ function createMarketHUD(scene) {
         padding: { x: 8, y: 4 }
     }).setScrollFactor(0).setDepth(1000);
 
-    scene.add.text(16, screen_height - 30, 'R: Restart | N: Dataset | T: Strategy | V: Fog | F: Fullscreen', {
+    scene.add.text(16, screen_height - 45, 'B: Buy | X: Sell/Cancel | L: Limit | P: TakeProfit | O: StopLoss', {
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        color: '#44ff88',
+        backgroundColor: '#000000aa',
+        padding: { x: 8, y: 4 }
+    }).setScrollFactor(0).setDepth(1000);
+
+    scene.add.text(16, screen_height - 20, 'R: Restart | N: Dataset | C: View Mode | V: Fog | F: Fullscreen', {
         fontFamily: 'monospace',
         fontSize: '11px',
         color: '#666666',
@@ -1347,6 +1457,11 @@ function restartGame(scene) {
     marketTerrainGenerator.reset();
     marketIndicators.reset();
 
+    // Reset trading terminal
+    if (tradingTerminal) {
+        tradingTerminal.reset();
+    }
+
     // Reset game state
     gameState = 'playing';
 
@@ -1689,6 +1804,18 @@ function update()
 
         // Update fog of war (historical vs future road)
         updateFogOfWar(this);
+
+        // === TRADING TERMINAL UPDATE ===
+        if (tradingTerminal) {
+            const currentReturn = marketTerrainGenerator.getTerrainMetadata()?.cumulativeReturn || 0;
+            const carX = vehicle.mainBody.x;
+            tradingTerminal.update(currentReturn, carX);
+        }
+
+        // === DUAL-VIEW HUD UPDATE ===
+        if (dualViewHUD) {
+            dualViewHUD.update();
+        }
 
         // Check for game end
         if (wealthEngine.gameResult) {
