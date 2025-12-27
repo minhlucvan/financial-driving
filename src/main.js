@@ -482,9 +482,17 @@ function updateHUDRegime() {
         if (metadata.date) {
             regimeText += ' | ' + metadata.date;
         }
+
+        // Show cumulative return (the height of our climb!)
+        if (metadata.cumulativeReturn !== undefined) {
+            const cumStr = metadata.cumulativeReturn >= 0 ? '+' : '';
+            regimeText += ' | Total: ' + cumStr + metadata.cumulativeReturn.toFixed(1) + '%';
+        }
+
+        // Show daily change in smaller text
         if (metadata.dailyReturn !== undefined) {
-            const returnStr = metadata.dailyReturn >= 0 ? '+' : '';
-            regimeText += ' | ' + returnStr + metadata.dailyReturn.toFixed(2) + '%';
+            const dayStr = metadata.dailyReturn >= 0 ? '+' : '';
+            regimeText += ' (' + dayStr + metadata.dailyReturn.toFixed(2) + '%)';
         }
 
         marketHUD.regime.setText(regimeText);
@@ -648,8 +656,8 @@ function createWealthHUD(scene) {
         color: '#666666'
     }).setScrollFactor(0).setDepth(1001);
 
-    // Goal label
-    scene.add.text(16, hudY + 144, 'GOAL: FINANCIAL FREEDOM (Stay above water!)', {
+    // Goal label - reflects the climbing metaphor
+    scene.add.text(16, hudY + 144, 'GOAL: Climb to $1M! Keep rising above the water.', {
         fontFamily: 'monospace',
         fontSize: '10px',
         color: '#888888',

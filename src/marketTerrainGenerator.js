@@ -1,16 +1,19 @@
 /**
- * MarketTerrainGenerator - Generates terrain from market price data
+ * MarketTerrainGenerator - Generates terrain from CUMULATIVE market returns
  *
- * Following CONCEPTS.md:
- * - The road is generated from real daily price data
- * - Each candle → road segment
- * - Slope = return (positive = uphill, negative = downhill)
- * - Curvature = volatility
- * - Surface = liquidity & regime
+ * KEY CONCEPT: Road height = Cumulative portfolio growth
+ * - Starting point = baseline ($10K)
+ * - Higher on screen = more wealth accumulated
+ * - Climbing up = wealth growing
+ * - Going down = wealth shrinking
  *
- * Bull market → smooth uphill highway
- * Chop → winding mountain road
- * Crash → steep downhill + fog + potholes
+ * This makes the physical position of the car represent actual progress
+ * toward financial freedom. The water level (inflation) rises from below,
+ * and you must keep climbing to stay above it.
+ *
+ * Bull market → steady climb upward
+ * Crash → steep descent
+ * Chop → sideways with small ups and downs
  */
 
 class MarketTerrainGenerator {
@@ -19,10 +22,10 @@ class MarketTerrainGenerator {
 
     // Market regime thresholds
     static REGIMES = {
-        BULL: { minReturn: 0.5, color: 0x4CAF50 },      // Green - uphill highway
-        BEAR: { maxReturn: -0.5, color: 0xF44336 },     // Red - downhill danger
-        CHOP: { volatility: 2.0, color: 0xFFC107 },     // Yellow - winding road
-        CRASH: { maxReturn: -2.0, color: 0x9C27B0 }     // Purple - steep cliff
+        BULL: { minReturn: 0.5, color: 0x4CAF50 },      // Green - climbing
+        BEAR: { maxReturn: -0.5, color: 0xF44336 },     // Red - descending
+        CHOP: { volatility: 2.0, color: 0xFFC107 },     // Yellow - sideways
+        CRASH: { maxReturn: -2.0, color: 0x9C27B0 }     // Purple - cliff
     };
 
     constructor() {
@@ -31,18 +34,30 @@ class MarketTerrainGenerator {
         this.marketData = null;
         this.isActive = false;
 
+        // Pre-calculated cumulative returns for the entire dataset
+        this.cumulativeReturns = [];
+        this.baselineHeight = 0;  // Starting Y position (represents $10K)
+
         // Terrain generation settings
         this.settings = {
-            sensitivity: 10,          // How much slope per 1% return
-            maxSlope: 32,             // Maximum slope in pixels
+            // Height scaling: how many pixels per 1% cumulative return
+            // Positive return = go UP (negative Y in screen coords)
+            heightPerPercent: 8,
+
+            // How much the terrain can vary from cumulative path (volatility noise)
+            volatilityNoise: 0.3,
+
             tilesPerCandle: 3,        // How many tiles per market day
-            volatilityEffect: 0.5,    // How much volatility affects roughness
-            smoothing: true           // Smooth transitions between days
+            maxSlopePerTile: 32,      // Maximum slope change per tile
+
+            // Bounds to prevent terrain going off-screen
+            maxHeightAboveBaseline: 2000,  // Max pixels above start
+            maxHeightBelowBaseline: 1500   // Max pixels below start
         };
     }
 
     /**
-     * Initialize with market data
+     * Initialize with market data and pre-calculate cumulative returns
      * @param {Object} dataset - Processed market dataset from MarketDataLoader
      */
     setMarketData(dataset) {
@@ -50,6 +65,44 @@ class MarketTerrainGenerator {
         this.currentIndex = 0;
         this.cumulativeY = 0;
         this.isActive = true;
+
+        // Pre-calculate cumulative returns for entire dataset
+        this.calculateCumulativeReturns();
+    }
+
+    /**
+     * Pre-calculate cumulative returns from market data
+     * This gives us the "height profile" of the entire market history
+     */
+    calculateCumulativeReturns() {
+        if (!this.marketData || !this.marketData.data) {
+            this.cumulativeReturns = [];
+            return;
+        }
+
+        const data = this.marketData.data;
+        this.cumulativeReturns = new Array(data.length);
+
+        // Start at 100 (representing starting wealth)
+        let cumulativeValue = 100;
+
+        for (let i = 0; i < data.length; i++) {
+            // Apply daily return to cumulative value
+            const dailyReturn = data[i].dailyReturn / 100; // Convert from percentage
+            cumulativeValue *= (1 + dailyReturn);
+
+            // Store cumulative return as percentage gain/loss from start
+            this.cumulativeReturns[i] = (cumulativeValue - 100); // e.g., +50 means +50% gain
+        }
+
+        if (MarketTerrainGenerator.debug) {
+            console.log('Cumulative returns calculated:', {
+                length: this.cumulativeReturns.length,
+                min: Math.min(...this.cumulativeReturns).toFixed(2),
+                max: Math.max(...this.cumulativeReturns).toFixed(2),
+                final: this.cumulativeReturns[this.cumulativeReturns.length - 1]?.toFixed(2)
+            });
+        }
     }
 
     /**
@@ -58,6 +111,7 @@ class MarketTerrainGenerator {
     reset() {
         this.currentIndex = 0;
         this.cumulativeY = 0;
+        this.baselineHeight = 0;
     }
 
     /**
@@ -69,8 +123,6 @@ class MarketTerrainGenerator {
 
     /**
      * Get current market regime based on recent performance
-     * @param {number} lookback - Number of candles to analyze
-     * @returns {string} Regime name: 'BULL', 'BEAR', 'CHOP', 'CRASH'
      */
     getCurrentRegime(lookback = 5) {
         if (!this.marketData || this.currentIndex < lookback) {
@@ -85,13 +137,12 @@ class MarketTerrainGenerator {
 
         for (let i = startIdx; i < this.currentIndex; i++) {
             totalReturn += data[i].dailyReturn;
-            avgVolatility += data[i].intradayVolatility;
+            avgVolatility += data[i].intradayVolatility || 1;
         }
 
         totalReturn /= lookback;
         avgVolatility /= lookback;
 
-        // Determine regime
         if (totalReturn < MarketTerrainGenerator.REGIMES.CRASH.maxReturn) {
             return 'CRASH';
         } else if (totalReturn < MarketTerrainGenerator.REGIMES.BEAR.maxReturn) {
@@ -106,39 +157,33 @@ class MarketTerrainGenerator {
     }
 
     /**
-     * Convert daily return to terrain slope
-     * @param {number} dailyReturn - Daily return percentage
-     * @returns {number} Slope in pixels (-32 to +32)
+     * Convert cumulative return percentage to Y height
+     * Higher returns = LOWER Y (because screen Y increases downward)
+     *
+     * @param {number} cumulativeReturnPercent - Total return from start (e.g., +50 = +50%)
+     * @returns {number} Y offset from baseline (negative = higher on screen)
      */
-    returnToSlope(dailyReturn) {
-        // Invert: positive return = uphill = negative Y delta
-        const rawSlope = -dailyReturn * this.settings.sensitivity;
+    cumulativeReturnToHeight(cumulativeReturnPercent) {
+        // Invert: positive return = go UP = negative Y delta
+        const rawHeight = -cumulativeReturnPercent * this.settings.heightPerPercent;
 
-        // Clamp to valid range
-        const clampedSlope = Math.max(-this.settings.maxSlope,
-                                       Math.min(this.settings.maxSlope, rawSlope));
+        // Apply bounds
+        const bounded = Math.max(
+            -this.settings.maxHeightAboveBaseline,
+            Math.min(this.settings.maxHeightBelowBaseline, rawHeight)
+        );
 
-        // Snap to valid tile slopes: -32, -16, 0, 16, 32
-        const validSlopes = [-32, -16, 0, 16, 32];
-        let closest = validSlopes[0];
-
-        for (const s of validSlopes) {
-            if (Math.abs(clampedSlope - s) < Math.abs(clampedSlope - closest)) {
-                closest = s;
-            }
-        }
-
-        return closest;
+        return bounded;
     }
 
     /**
-     * Generate height curve from market data (compatible with NoiseGenerator interface)
+     * Generate height curve from CUMULATIVE market returns
      * @param {Object} param - Terrain parameters
      * @param {number} tileSize - Size of each tile
      * @returns {Array<number>} Array of Y heights
      */
     generateCurve(param, tileSize) {
-        if (!this.marketData || !this.isActive) {
+        if (!this.marketData || !this.isActive || this.cumulativeReturns.length === 0) {
             console.warn('MarketTerrainGenerator: No market data, falling back to flat');
             return this.generateFlatCurve(param, tileSize);
         }
@@ -147,34 +192,58 @@ class MarketTerrainGenerator {
         const data = this.marketData.data;
         const tilesNeeded = Math.ceil(param.w / tileSize);
 
+        // Start from previous cumulative position
         let currentHeight = param.cummCoord || 0;
         let tileCount = 0;
 
+        // Track previous height for slope calculation
+        let previousCumulativeHeight = this.currentIndex > 0
+            ? this.cumulativeReturnToHeight(this.cumulativeReturns[this.currentIndex - 1])
+            : 0;
+
         while (tileCount < tilesNeeded && this.currentIndex < data.length) {
             const candle = data[this.currentIndex];
-            const slope = this.returnToSlope(candle.dailyReturn);
-            const volatility = candle.intradayVolatility || 0;
+            const cumulativeReturn = this.cumulativeReturns[this.currentIndex];
 
-            // Generate multiple tiles per candle for smoother terrain
+            // Get target height based on cumulative return
+            const targetHeight = this.cumulativeReturnToHeight(cumulativeReturn);
+
+            // Calculate slope (change from previous day)
+            const heightChange = targetHeight - previousCumulativeHeight;
+
+            // Get volatility for noise
+            const volatility = candle.intradayVolatility || 1;
+
+            // Generate tiles for this candle
             for (let t = 0; t < this.settings.tilesPerCandle && tileCount < tilesNeeded; t++) {
-                // Add some intra-day variation based on volatility
-                let variation = 0;
-                if (this.settings.volatilityEffect > 0 && volatility > 0) {
-                    // Use seeded random for consistent regeneration
-                    const noise = (srand.frac() - 0.5) * volatility * this.settings.volatilityEffect * 16;
-                    variation = Math.round(noise / 16) * 16; // Snap to 16-pixel increments
+                // Interpolate height across tiles for this candle
+                const progress = (t + 1) / this.settings.tilesPerCandle;
+                const interpolatedChange = heightChange * progress / this.settings.tilesPerCandle;
+
+                // Add volatility noise (small random variation)
+                let noise = 0;
+                if (this.settings.volatilityNoise > 0) {
+                    noise = (srand.frac() - 0.5) * volatility * this.settings.volatilityNoise * 8;
                 }
 
-                const tileSlope = slope + variation;
-                currentHeight += tileSlope / this.settings.tilesPerCandle;
+                // Clamp slope per tile
+                let tileSlope = interpolatedChange + noise;
+                tileSlope = Math.max(-this.settings.maxSlopePerTile,
+                                     Math.min(this.settings.maxSlopePerTile, tileSlope));
+
+                // Snap to valid tile heights (multiples of 16)
+                tileSlope = Math.round(tileSlope / 16) * 16;
+
+                currentHeight += tileSlope;
                 heights.push(currentHeight);
                 tileCount++;
             }
 
+            previousCumulativeHeight = targetHeight;
             this.currentIndex++;
         }
 
-        // Fill remaining tiles if we run out of data
+        // Fill remaining tiles if we run out of data (flat continuation)
         while (heights.length < tilesNeeded) {
             heights.push(currentHeight);
         }
@@ -182,7 +251,7 @@ class MarketTerrainGenerator {
         this.cumulativeY = currentHeight;
 
         if (MarketTerrainGenerator.debug) {
-            console.log(`MarketTerrain: Generated ${heights.length} tiles from ${this.currentIndex} candles`);
+            console.log(`MarketTerrain: Generated ${heights.length} tiles, cumulative Y: ${currentHeight}`);
         }
 
         return heights;
@@ -204,37 +273,60 @@ class MarketTerrainGenerator {
     }
 
     /**
-     * Get terrain metadata for current segment (for visual effects)
-     * @returns {Object} Metadata including regime, volatility, etc.
+     * Get terrain metadata including cumulative progress
+     * @returns {Object} Metadata including regime, cumulative return, etc.
      */
     getTerrainMetadata() {
         if (!this.marketData || this.currentIndex === 0) {
             return {
                 regime: 'CHOP',
-                avgReturn: 0,
+                dailyReturn: 0,
+                cumulativeReturn: 0,
                 avgVolatility: 1,
-                trend: 'neutral'
+                trend: 'neutral',
+                daysCompleted: 0,
+                totalDays: 0
             };
         }
 
         const idx = Math.min(this.currentIndex - 1, this.marketData.data.length - 1);
         const candle = this.marketData.data[idx];
+        const cumulativeReturn = this.cumulativeReturns[idx] || 0;
 
         return {
             regime: this.getCurrentRegime(),
             date: candle.date,
             dailyReturn: candle.dailyReturn,
+            cumulativeReturn: cumulativeReturn,
             avgVolatility: candle.rollingVolatility || candle.intradayVolatility,
             trend: candle.dailyReturn > 0.5 ? 'bullish' :
                    candle.dailyReturn < -0.5 ? 'bearish' : 'neutral',
-            price: candle.close
+            price: candle.close,
+            daysCompleted: this.currentIndex,
+            totalDays: this.marketData.data.length
+        };
+    }
+
+    /**
+     * Get the maximum and minimum cumulative returns in the dataset
+     * Useful for visualizing the full journey
+     */
+    getCumulativeRange() {
+        if (this.cumulativeReturns.length === 0) {
+            return { min: 0, max: 0, final: 0 };
+        }
+
+        return {
+            min: Math.min(...this.cumulativeReturns),
+            max: Math.max(...this.cumulativeReturns),
+            final: this.cumulativeReturns[this.cumulativeReturns.length - 1]
         };
     }
 }
 
 /**
- * Draw terrain from market data (replacement for drawTerrain when using market mode)
- * Uses the same tile placement logic but with market-generated heights
+ * Draw terrain from cumulative market returns
+ * The terrain height now represents total portfolio progress
  */
 function drawMarketTerrain(marketGen, layer, param) {
     var debug = MarketTerrainGenerator.debug;
@@ -256,10 +348,10 @@ function drawMarketTerrain(marketGen, layer, param) {
         metadata: null
     };
 
-    // Generate heights from market data
+    // Generate heights from cumulative market data
     const heights = marketGen.generateCurve(param, tileSize);
 
-    // Convert heights to terrain slopes (similar to original drawTerrain)
+    // Convert heights to terrain slopes
     var terrainV = [];
     var approx = [-32, -16, 0, 16, 32];
     var cummCoord = param.cummCoord;
@@ -292,10 +384,10 @@ function drawMarketTerrain(marketGen, layer, param) {
     }
 
     if (debug) {
-        console.log('Market terrain slopes:', terrainV.slice(0, 20));
+        console.log('Cumulative terrain slopes:', terrainV.slice(0, 20));
     }
 
-    // Tile placement (same logic as original drawTerrain)
+    // Tile placement (same logic as original)
     let yCoordOffset = param.y + param.h / 2;
     let py = param.cummCoord ?? 0;
 
