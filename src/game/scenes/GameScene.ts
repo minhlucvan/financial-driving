@@ -1,16 +1,34 @@
 import Phaser from 'phaser';
 import { getScreenDimensions, globalGameState } from '../config';
 
-// Simplified game scene - the full implementation would import all the game modules
+/**
+ * GameScene - A stateless view engine that renders based on external state
+ *
+ * This scene does NOT manage its own game logic. It receives state updates from
+ * the React AppStateProvider and renders accordingly. The game acts purely as
+ * a visualization layer.
+ */
 export class GameScene extends Phaser.Scene {
   private vehicle: any = null;
-  private chunkLoader: any = null;
-  private backgroundLoader: any = null;
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
-  private marketDataLoader: any = null;
-  private wealthEngine: any = null;
-  private currentCandleIndex = 0;
-  private gameState: 'playing' | 'victory' | 'bankrupt' = 'playing';
+  private terrainGraphics: Phaser.GameObjects.Graphics | null = null;
+  private groundBodies: MatterJS.BodyType[] = [];
+  private hudText: Phaser.GameObjects.Text | null = null;
+
+  // External state received from React (single source of truth)
+  private externalState = {
+    terrainSlope: 0,
+    terrainRoughness: 0,
+    torqueMultiplier: 1,
+    brakeMultiplier: 1,
+    tractionMultiplier: 1,
+    leverage: 1,
+    cashBuffer: 0.2,
+    currentIndex: 0,
+    regime: 'CHOP' as string,
+    wealth: 10000,
+    datasetName: 'S&P 500',
+  };
 
   constructor() {
     super({ key: 'gameScene' });
@@ -37,30 +55,19 @@ export class GameScene extends Phaser.Scene {
     this.load.image('ground_2', '/game_background_1/layers/ground_2.png');
     this.load.image('ground_3', '/game_background_1/layers/ground_3.png');
     this.load.image('plant', '/game_background_1/layers/plant.png');
-
-    // Load market data
-    this.load.json('sp500', '/market/sp500.json');
-    this.load.json('bitcoin', '/market/bitcoin.json');
-    this.load.json('meme_stock', '/market/meme_stock.json');
-    this.load.json('steady_growth', '/market/steady_growth.json');
-    this.load.json('crash_2008', '/market/scenarios/crash_2008.json');
-    this.load.json('covid_2020', '/market/scenarios/covid_2020.json');
   }
 
   create() {
     const { width, height } = getScreenDimensions();
 
-    // Reset game state
-    this.gameState = 'playing';
-    this.currentCandleIndex = 0;
-
-    // Create background layers (simplified)
+    // Create background layers
     this.createBackground();
 
-    // Create ground/terrain (simplified - uses basic physics rectangle)
-    this.createSimplifiedTerrain();
+    // Create terrain graphics
+    this.terrainGraphics = this.add.graphics();
+    this.createTerrain();
 
-    // Create vehicle (simplified)
+    // Create vehicle
     this.createVehicle();
 
     // Setup camera
@@ -70,7 +77,7 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.roundPixels = true;
     }
 
-    // Create HUD
+    // Create minimal HUD (most HUD is in React)
     this.createHUD();
 
     // Setup keyboard input
@@ -80,16 +87,42 @@ export class GameScene extends Phaser.Scene {
     // Enable mouse spring for physics interaction
     this.matter.add.mouseSpring();
 
+    // Register for state updates from React
+    this.game.events.on('updateState', this.handleStateUpdate, this);
+
     // Notify React that game is ready
     if (globalGameState.onStateChange) {
       globalGameState.onStateChange('playing');
     }
   }
 
+  /**
+   * Handle state updates from React AppStateProvider
+   * This is the primary way the game receives state changes
+   */
+  private handleStateUpdate = (state: Partial<typeof this.externalState>) => {
+    const prevState = { ...this.externalState };
+    Object.assign(this.externalState, state);
+
+    // Apply physics modifiers to vehicle
+    if (this.vehicle) {
+      this.vehicle.torqueMultiplier = this.externalState.torqueMultiplier;
+      this.vehicle.brakeMultiplier = this.externalState.brakeMultiplier;
+      this.vehicle.tractionMultiplier = this.externalState.tractionMultiplier;
+    }
+
+    // Update terrain if slope changed significantly
+    if (Math.abs(prevState.terrainSlope - this.externalState.terrainSlope) > 5) {
+      this.updateTerrainSlope();
+    }
+
+    // Update HUD
+    this.updateHUD();
+  };
+
   private createBackground() {
     const { width, height } = getScreenDimensions();
 
-    // Create parallax background layers
     const layers = [
       { key: 'sky', scrollFactor: 0 },
       { key: 'clouds_1', scrollFactor: 0.1 },
@@ -108,36 +141,73 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private createSimplifiedTerrain() {
+  private createTerrain() {
     const { width, height } = getScreenDimensions();
+    const groundY = height - 100;
 
-    // Create a simple ground for demonstration
-    // The full implementation would use the ChunkLoader and terrain generators
-    const groundHeight = 100;
-    const groundY = height - groundHeight / 2;
+    // Clear existing ground bodies
+    this.groundBodies.forEach((body) => {
+      this.matter.world.remove(body);
+    });
+    this.groundBodies = [];
 
-    // Create static ground bodies
-    for (let i = 0; i < 20; i++) {
-      const groundBody = this.matter.add.rectangle(
-        i * width * 0.5,
-        groundY,
-        width * 0.5,
-        groundHeight,
-        { isStatic: true }
-      );
+    // Create ground segments
+    const segmentWidth = 200;
+    const numSegments = 50;
+
+    for (let i = 0; i < numSegments; i++) {
+      const x = i * segmentWidth;
+      const body = this.matter.add.rectangle(x + segmentWidth / 2, groundY, segmentWidth, 100, {
+        isStatic: true,
+        friction: 1,
+      });
+      this.groundBodies.push(body);
     }
 
-    // Add visual ground
-    const graphics = this.add.graphics();
-    graphics.fillStyle(0x4a5568, 1);
-    graphics.fillRect(-width, groundY - groundHeight / 2, width * 10, groundHeight);
+    this.drawTerrain();
+  }
+
+  private updateTerrainSlope() {
+    // Update terrain friction based on roughness
+    const friction = Math.max(0.3, 1 - this.externalState.terrainRoughness * 0.7);
+    this.groundBodies.forEach((body) => {
+      body.friction = friction;
+    });
+
+    this.drawTerrain();
+  }
+
+  private drawTerrain() {
+    const { height } = getScreenDimensions();
+    const groundY = height - 100;
+
+    if (this.terrainGraphics) {
+      this.terrainGraphics.clear();
+
+      // Color based on regime
+      let color = 0x4a5568;
+      switch (this.externalState.regime) {
+        case 'BULL':
+          color = 0x10b981;
+          break;
+        case 'BEAR':
+          color = 0xef4444;
+          break;
+        case 'CRASH':
+          color = 0xdc2626;
+          break;
+        case 'RECOVERY':
+          color = 0x06b6d4;
+          break;
+      }
+
+      this.terrainGraphics.fillStyle(color, 0.8);
+      this.terrainGraphics.fillRect(-1000, groundY - 50, 15000, 200);
+    }
   }
 
   private createVehicle() {
     const { width, height } = getScreenDimensions();
-
-    // Simplified vehicle creation
-    // The full implementation would use the Vehicle class
     const vehicleX = width / 4;
     const vehicleY = height - 200;
 
@@ -160,15 +230,11 @@ export class GameScene extends Phaser.Scene {
     const frontWheel = this.matter.add.circle(vehicleX + 35, vehicleY + 20, wheelRadius, wheelOptions);
     const backWheel = this.matter.add.circle(vehicleX - 35, vehicleY + 20, wheelRadius, wheelOptions);
 
-    // Connect wheels to body with constraints
-    this.matter.add.constraint(body, frontWheel, 40, 0.4, {
-      pointA: { x: 35, y: 20 },
-    });
-    this.matter.add.constraint(body, backWheel, 40, 0.4, {
-      pointA: { x: -35, y: 20 },
-    });
+    // Connect wheels to body
+    this.matter.add.constraint(body, frontWheel, 40, 0.4, { pointA: { x: 35, y: 20 } });
+    this.matter.add.constraint(body, backWheel, 40, 0.4, { pointA: { x: -35, y: 20 } });
 
-    // Add visual sprites (simplified rectangles for now)
+    // Add visual sprites
     const bodySprite = this.add.rectangle(vehicleX, vehicleY, 100, 40, 0x3b82f6);
     const frontWheelSprite = this.add.circle(vehicleX + 35, vehicleY + 20, wheelRadius, 0x1f2937);
     const backWheelSprite = this.add.circle(vehicleX - 35, vehicleY + 20, wheelRadius, 0x1f2937);
@@ -182,45 +248,34 @@ export class GameScene extends Phaser.Scene {
       backWheelSprite,
       torqueMultiplier: 1,
       brakeMultiplier: 1,
+      tractionMultiplier: 1,
     };
   }
 
   private createHUD() {
-    const { width } = getScreenDimensions();
-
-    // Market dataset info
-    this.add
-      .text(16, 16, `Market: ${globalGameState.currentMarketDataKey.toUpperCase()}`, {
+    // Minimal HUD - most info is shown in React overlay
+    this.hudText = this.add
+      .text(16, 16, '', {
         fontFamily: 'monospace',
-        fontSize: '14px',
-        color: '#00ff00',
-        backgroundColor: '#000000aa',
-        padding: { x: 8, y: 4 },
-      })
-      .setScrollFactor(0);
-
-    // Controls info
-    this.add
-      .text(16, 50, 'Arrow keys: Drive | W/S: Leverage | N: Dataset | C: View', {
-        fontFamily: 'monospace',
-        fontSize: '11px',
+        fontSize: '12px',
         color: '#ffffff',
         backgroundColor: '#000000aa',
-        padding: { x: 6, y: 3 },
+        padding: { x: 8, y: 4 },
       })
       .setScrollFactor(0);
 
-    // Wealth display
-    this.add
-      .text(width - 16, 16, 'Wealth: $10,000', {
-        fontFamily: 'monospace',
-        fontSize: '14px',
-        color: '#00ff00',
-        backgroundColor: '#000000aa',
-        padding: { x: 8, y: 4 },
-      })
-      .setOrigin(1, 0)
-      .setScrollFactor(0);
+    this.updateHUD();
+  }
+
+  private updateHUD() {
+    if (this.hudText) {
+      const { leverage, cashBuffer, regime, wealth } = this.externalState;
+      this.hudText.setText(
+        `${this.externalState.datasetName} | ${regime} | ` +
+          `Lev: ${leverage.toFixed(1)}x | Cash: ${(cashBuffer * 100).toFixed(0)}% | ` +
+          `$${wealth.toLocaleString()}`
+      );
+    }
   }
 
   private setupKeyboardControls() {
@@ -234,17 +289,11 @@ export class GameScene extends Phaser.Scene {
       console.log('FPS:', this.game.loop.actualFps);
     });
 
-    // Restart game
+    // Restart - delegate to React
     this.input.keyboard!.addKey('R').on('down', () => {
-      this.scene.restart();
-    });
-
-    // Cycle market dataset
-    this.input.keyboard!.addKey('N').on('down', () => {
-      const datasets = ['sp500', 'bitcoin', 'meme_stock', 'steady_growth', 'crash_2008', 'covid_2020'];
-      const currentIdx = datasets.indexOf(globalGameState.currentMarketDataKey);
-      globalGameState.currentMarketDataKey = datasets[(currentIdx + 1) % datasets.length];
-      console.log('Switched to:', globalGameState.currentMarketDataKey);
+      if (globalGameState.onReset) {
+        globalGameState.onReset();
+      }
     });
   }
 
@@ -254,11 +303,11 @@ export class GameScene extends Phaser.Scene {
     // Update vehicle sprites to match physics bodies
     this.updateVehicleSprites();
 
-    // Handle input
+    // Handle input (physics-only, no state management)
     this.handleInput();
 
-    // Update game state
-    this.updateGameState();
+    // Report vehicle state back to React
+    this.reportVehicleState();
   }
 
   private updateVehicleSprites() {
@@ -268,6 +317,15 @@ export class GameScene extends Phaser.Scene {
       bodySprite.x = mainBody.position.x;
       bodySprite.y = mainBody.position.y;
       bodySprite.rotation = mainBody.angle;
+
+      // Color based on leverage (more red = more leveraged)
+      const leverageColor = Phaser.Display.Color.Interpolate.ColorWithColor(
+        { r: 59, g: 130, b: 246 }, // Blue (low leverage)
+        { r: 239, g: 68, b: 68 }, // Red (high leverage)
+        3,
+        (this.externalState.leverage - 0.5) / 2.5
+      );
+      bodySprite.fillColor = Phaser.Display.Color.GetColor(leverageColor.r, leverageColor.g, leverageColor.b);
     }
 
     if (frontWheelSprite && frontWheel) {
@@ -282,12 +340,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleInput() {
-    const { mainBody, frontWheel, backWheel, torqueMultiplier, brakeMultiplier } = this.vehicle;
-    const torque = 0.002 * torqueMultiplier;
+    const { mainBody, frontWheel, backWheel, torqueMultiplier, brakeMultiplier, tractionMultiplier } = this.vehicle;
+    const baseTorque = 0.002;
+    const torque = baseTorque * torqueMultiplier * tractionMultiplier;
     const force = 0.001;
 
     if (this.cursors!.up.isDown) {
-      // Apply torque to wheels
+      // Apply torque to wheels (forward)
       this.matter.body.setAngularVelocity(frontWheel, frontWheel.angularVelocity - torque);
       this.matter.body.setAngularVelocity(backWheel, backWheel.angularVelocity - torque);
     }
@@ -300,39 +359,37 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.cursors!.left.isDown) {
-      // Tilt left
+      // Tilt left (wheelie)
       this.matter.body.applyForce(mainBody, mainBody.position, { x: 0, y: -force });
     }
 
     if (this.cursors!.right.isDown) {
-      // Tilt right
+      // Lean forward
       this.matter.body.applyForce(mainBody, mainBody.position, { x: force, y: 0 });
     }
   }
 
-  private updateGameState() {
-    // Send update to React
-    if (globalGameState.onGameUpdate && this.vehicle?.mainBody) {
-      globalGameState.onGameUpdate({
-        currentIndex: this.currentCandleIndex,
-        wealth: 10000, // Placeholder - would come from WealthEngine
-        drawdown: 0,
-        regime: 'CHOP',
-        vehicleVelocity: {
-          x: this.vehicle.mainBody.velocity?.x || 0,
-          y: this.vehicle.mainBody.velocity?.y || 0,
-        },
-        isFlipped: Math.abs(this.vehicle.mainBody.angle) > Math.PI / 2,
+  private reportVehicleState() {
+    if (!this.vehicle?.mainBody) return;
+
+    const isFlipped = Math.abs(this.vehicle.mainBody.angle) > Math.PI / 2;
+
+    // Report to React via global callback
+    if (globalGameState.onVehicleUpdate) {
+      globalGameState.onVehicleUpdate({
+        velocityX: this.vehicle.mainBody.velocity?.x || 0,
+        velocityY: this.vehicle.mainBody.velocity?.y || 0,
+        angularVelocity: this.vehicle.mainBody.angularVelocity || 0,
+        isOnGround: true,
+        isFlipped,
+        positionX: this.vehicle.mainBody.position.x,
+        positionY: this.vehicle.mainBody.position.y,
       });
     }
+  }
 
-    // Increment candle index based on car position
-    if (this.vehicle?.mainBody) {
-      const carX = this.vehicle.mainBody.position.x;
-      const newIndex = Math.floor(carX / 100); // One candle per 100 pixels
-      if (newIndex !== this.currentCandleIndex) {
-        this.currentCandleIndex = newIndex;
-      }
-    }
+  shutdown() {
+    // Clean up event listener
+    this.game.events.off('updateState', this.handleStateUpdate, this);
   }
 }

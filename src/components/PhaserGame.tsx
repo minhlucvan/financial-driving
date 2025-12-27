@@ -1,9 +1,7 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import Phaser from 'phaser';
-import { useGameContext } from '../context/GameContext';
-
-// Import game modules (we'll create these as TypeScript modules)
-import { createGameConfig } from '../game/config';
+import { useAppState } from '../context/AppStateProvider';
+import { createGameConfig, type VehicleUpdateData } from '../game/config';
 import { VSelectScene } from '../game/scenes/VSelectScene';
 import { GameScene } from '../game/scenes/GameScene';
 
@@ -11,30 +9,32 @@ export interface PhaserGameHandle {
   game: Phaser.Game | null;
   restartGame: () => void;
   toggleFullscreen: () => void;
+  sendStateUpdate: () => void;
 }
 
 interface PhaserGameProps {
   width?: number;
   height?: number;
   onGameReady?: (game: Phaser.Game) => void;
-  onGameUpdate?: (data: GameUpdateData) => void;
-}
-
-export interface GameUpdateData {
-  currentIndex: number;
-  wealth: number;
-  drawdown: number;
-  regime: string;
-  vehicleVelocity: { x: number; y: number };
-  isFlipped: boolean;
 }
 
 const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
-  ({ width, height, onGameReady, onGameUpdate }, ref) => {
+  ({ width, height, onGameReady }, ref) => {
     const gameRef = useRef<Phaser.Game | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const { updateWealth, updateVehicle, setCurrentCandleIndex, updateIndicators, setGameState } =
-      useGameContext();
+
+    // Get state and actions from unified provider
+    const {
+      updateVehicle,
+      setGameState,
+      resetGame,
+      // State to send to game
+      terrain,
+      physics,
+      wealth,
+      market,
+      datasetName,
+    } = useAppState();
 
     useImperativeHandle(ref, () => ({
       game: gameRef.current,
@@ -51,37 +51,52 @@ const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
           gameRef.current.scale.toggleFullscreen();
         }
       },
+      sendStateUpdate: () => {
+        if (gameRef.current) {
+          // Send current state to game
+          gameRef.current.events.emit('updateState', {
+            terrainSlope: terrain.currentSlope,
+            terrainRoughness: terrain.currentRoughness,
+            torqueMultiplier: physics.torqueMultiplier,
+            brakeMultiplier: physics.brakeMultiplier,
+            tractionMultiplier: physics.tractionMultiplier,
+            leverage: wealth.leverage,
+            cashBuffer: wealth.cashBuffer,
+            regime: market.regime,
+            wealth: wealth.currentWealth,
+            datasetName: datasetName,
+          });
+        }
+      },
     }));
 
+    // Create game on mount
     useEffect(() => {
       if (!containerRef.current) return;
 
-      // Create game config
+      // Create game config with callbacks
       const config = createGameConfig({
         parent: containerRef.current,
         width: width || 1536,
         height: height || 864,
         scenes: [VSelectScene, GameScene],
-        onGameUpdate: (data: GameUpdateData) => {
-          // Update React state from game
-          updateWealth({
-            currentWealth: data.wealth,
-            drawdown: data.drawdown,
-          });
+        // Vehicle state updates from game to React
+        onVehicleUpdate: (data: VehicleUpdateData) => {
           updateVehicle({
-            velocityX: data.vehicleVelocity.x,
-            velocityY: data.vehicleVelocity.y,
+            velocityX: data.velocityX,
+            velocityY: data.velocityY,
+            angularVelocity: data.angularVelocity,
+            isOnGround: data.isOnGround,
             isFlipped: data.isFlipped,
           });
-          setCurrentCandleIndex(data.currentIndex);
-          updateIndicators({ regime: data.regime as any });
-
-          if (onGameUpdate) {
-            onGameUpdate(data);
-          }
         },
+        // Game state changes
         onStateChange: (state: 'playing' | 'victory' | 'bankrupt') => {
           setGameState(state);
+        },
+        // Reset handler
+        onReset: () => {
+          resetGame();
         },
       });
 
@@ -102,6 +117,24 @@ const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
         }
       };
     }, []);
+
+    // Sync state from React to Game whenever it changes
+    useEffect(() => {
+      if (gameRef.current) {
+        gameRef.current.events.emit('updateState', {
+          terrainSlope: terrain.currentSlope,
+          terrainRoughness: terrain.currentRoughness,
+          torqueMultiplier: physics.torqueMultiplier,
+          brakeMultiplier: physics.brakeMultiplier,
+          tractionMultiplier: physics.tractionMultiplier,
+          leverage: wealth.leverage,
+          cashBuffer: wealth.cashBuffer,
+          regime: market.regime,
+          wealth: wealth.currentWealth,
+          datasetName: datasetName,
+        });
+      }
+    }, [terrain, physics, wealth, market.regime, datasetName]);
 
     // Handle resize
     useEffect(() => {

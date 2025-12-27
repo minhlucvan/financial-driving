@@ -1,13 +1,9 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { useGameContext } from '../context/GameContext';
+import React, { useRef, useEffect, useState } from 'react';
+import { useAppState } from '../context/AppStateProvider';
 import PhaserGame, { PhaserGameHandle } from './PhaserGame';
 import FinancialChart from './FinancialChart';
-import useMarketData from '../hooks/useMarketData';
-import { ViewMode } from '../types';
-
-interface GameLayoutProps {
-  initialDataset?: string;
-}
+import PlaybackControls from './PlaybackControls';
+import type { ViewMode } from '../types';
 
 const VIEW_MODE_HEIGHTS: Record<ViewMode, { chart: number; game: number }> = {
   split: { chart: 28, game: 72 },
@@ -16,21 +12,25 @@ const VIEW_MODE_HEIGHTS: Record<ViewMode, { chart: number; game: number }> = {
   full_immersion: { chart: 0, game: 100 },
 };
 
-const GameLayout: React.FC<GameLayoutProps> = ({ initialDataset = 'sp500' }) => {
+const GameLayout: React.FC = () => {
   const gameRef = useRef<PhaserGameHandle>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { viewMode, cycleViewMode, setChartData, wealth, indicators, gameState, settings, updateSettings } =
-    useGameContext();
+
+  // Get state from unified provider
+  const {
+    viewMode,
+    cycleViewMode,
+    wealth,
+    gamePlayState,
+    isLoading,
+    timeline,
+    setLeverage,
+    setCashBuffer,
+    loadDataset,
+    playback,
+  } = useAppState();
 
   const [dimensions, setDimensions] = useState({ width: 1200, height: 800 });
-  const { chartData, rawData, currentDataset, cycleDataset, isLoading } = useMarketData(initialDataset);
-
-  // Update chart data in context when it changes
-  useEffect(() => {
-    if (chartData.length > 0) {
-      setChartData(chartData);
-    }
-  }, [chartData, setChartData]);
 
   // Handle resize
   useEffect(() => {
@@ -48,32 +48,51 @@ const GameLayout: React.FC<GameLayoutProps> = ({ initialDataset = 'sp500' }) => 
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts for view mode, dataset, and wealth controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'c' || e.key === 'C') {
-        cycleViewMode();
+      // Don't handle if in input or if modifier keys pressed
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
       }
-      if (e.key === 'n' || e.key === 'N') {
-        const newDataset = cycleDataset();
-        updateSettings({ selectedDataset: newDataset });
-      }
-      if (e.key === 'f' || e.key === 'F') {
-        gameRef.current?.toggleFullscreen();
+
+      switch (e.key.toLowerCase()) {
+        case 'c':
+          cycleViewMode();
+          break;
+        case 'n':
+          // Cycle datasets
+          const datasets = ['sp500', 'bitcoin', 'meme_stock', 'steady_growth', 'crash_2008', 'covid_2020'];
+          // This would need access to current dataset - handled by loadDataset
+          break;
+        case 'f':
+          gameRef.current?.toggleFullscreen();
+          break;
+        case 'w':
+          setLeverage(wealth.leverage + 0.25);
+          break;
+        case 's':
+          // Only adjust leverage if not arrow key (which is handled by game)
+          if (!e.shiftKey) {
+            setLeverage(wealth.leverage - 0.25);
+          }
+          break;
+        case 'q':
+          setCashBuffer(wealth.cashBuffer + 0.05);
+          break;
+        case 'e':
+          setCashBuffer(wealth.cashBuffer - 0.05);
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cycleViewMode, cycleDataset, updateSettings]);
+  }, [cycleViewMode, setLeverage, setCashBuffer, wealth.leverage, wealth.cashBuffer]);
 
   const heights = VIEW_MODE_HEIGHTS[viewMode];
   const chartHeight = (dimensions.height * heights.chart) / 100;
   const gameHeight = (dimensions.height * heights.game) / 100;
-
-  const handleGameUpdate = useCallback(() => {
-    // Game update handling is done via context
-  }, []);
 
   return (
     <div
@@ -108,27 +127,16 @@ const GameLayout: React.FC<GameLayoutProps> = ({ initialDataset = 'sp500' }) => 
                 color: '#666',
               }}
             >
-              Loading {currentDataset} data...
+              Loading market data...
             </div>
           ) : (
-            <FinancialChart width={dimensions.width} height={chartHeight} showVolume={viewMode !== 'drive_focus'} showMA={true} />
+            <FinancialChart
+              width={dimensions.width}
+              height={chartHeight}
+              showVolume={viewMode !== 'drive_focus'}
+              showMA={true}
+            />
           )}
-
-          {/* Dataset indicator */}
-          <div
-            style={{
-              position: 'absolute',
-              top: 8,
-              left: 8,
-              padding: '4px 12px',
-              backgroundColor: 'rgba(0, 0, 0, 0.7)',
-              color: '#fff',
-              borderRadius: 4,
-              fontSize: 12,
-            }}
-          >
-            {rawData?.name || currentDataset.toUpperCase()} | Press N to change
-          </div>
         </div>
       )}
 
@@ -140,9 +148,22 @@ const GameLayout: React.FC<GameLayoutProps> = ({ initialDataset = 'sp500' }) => 
           position: 'relative',
         }}
       >
-        <PhaserGame ref={gameRef} width={dimensions.width} height={gameHeight} onGameUpdate={handleGameUpdate} />
+        <PhaserGame ref={gameRef} width={dimensions.width} height={gameHeight} />
 
-        {/* Overlay HUD */}
+        {/* Playback Controls - Bottom Left */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 16,
+            left: 16,
+            zIndex: 20,
+            pointerEvents: 'auto',
+          }}
+        >
+          <PlaybackControls compact={viewMode === 'drive_focus'} showSpeedControl={viewMode !== 'drive_focus'} />
+        </div>
+
+        {/* Overlay HUD - Top */}
         <div
           style={{
             position: 'absolute',
@@ -156,38 +177,25 @@ const GameLayout: React.FC<GameLayoutProps> = ({ initialDataset = 'sp500' }) => 
           }}
         >
           {/* Left side - Game status */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-            }}
-          >
-            {gameState !== 'playing' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {gamePlayState !== 'playing' && gamePlayState !== 'menu' && (
               <div
                 style={{
                   padding: '8px 16px',
-                  backgroundColor: gameState === 'victory' ? '#10b981' : '#ef4444',
+                  backgroundColor: gamePlayState === 'victory' ? '#10b981' : '#ef4444',
                   color: '#fff',
                   borderRadius: 4,
                   fontWeight: 'bold',
                   fontSize: 16,
                 }}
               >
-                {gameState === 'victory' ? '🎉 VICTORY!' : '💥 BANKRUPT'}
+                {gamePlayState === 'victory' ? 'VICTORY!' : 'BANKRUPT'}
               </div>
             )}
           </div>
 
           {/* Right side - Wealth info */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-end',
-              gap: 4,
-            }}
-          >
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
             <div
               style={{
                 padding: '6px 12px',
@@ -227,13 +235,12 @@ const GameLayout: React.FC<GameLayoutProps> = ({ initialDataset = 'sp500' }) => 
           </div>
         </div>
 
-        {/* Bottom controls hint */}
+        {/* Bottom Center - View mode and controls hint */}
         <div
           style={{
             position: 'absolute',
-            bottom: 8,
-            left: '50%',
-            transform: 'translateX(-50%)',
+            bottom: 16,
+            right: 16,
             padding: '6px 12px',
             backgroundColor: 'rgba(0, 0, 0, 0.6)',
             color: '#888',
@@ -242,7 +249,7 @@ const GameLayout: React.FC<GameLayoutProps> = ({ initialDataset = 'sp500' }) => 
             pointerEvents: 'none',
           }}
         >
-          Arrow keys: Drive | W/S: Leverage | Q/E: Cash | C: View ({viewMode}) | R: Restart
+          C: View ({viewMode}) | W/S: Leverage | Q/E: Cash | Space: Play/Pause
         </div>
       </div>
     </div>

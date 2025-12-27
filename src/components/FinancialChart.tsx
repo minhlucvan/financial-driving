@@ -7,31 +7,28 @@ import { CrossHairCursor, MouseCoordinateX, MouseCoordinateY } from '@react-fina
 import { OHLCTooltip, MovingAverageTooltip } from '@react-financial-charts/tooltip';
 import { discontinuousTimeScaleProvider } from '@react-financial-charts/scales';
 import { ema, sma } from '@react-financial-charts/indicators';
-import { useGameContext } from '../context/GameContext';
-import { ChartCandle } from '../types';
+import { useAppState } from '../context/AppStateProvider';
+import type { ChartCandle } from '../types';
 
 interface FinancialChartProps {
   width: number;
   height: number;
-  data?: ChartCandle[];
   showVolume?: boolean;
   showMA?: boolean;
-  currentIndex?: number;
-  onCandleHover?: (candle: ChartCandle | null) => void;
 }
 
 const FinancialChart: React.FC<FinancialChartProps> = ({
   width,
   height,
-  data: propData,
   showVolume = true,
   showMA = true,
-  currentIndex,
 }) => {
-  const { chartData: contextData, currentCandleIndex, indicators } = useGameContext();
+  // Get state from unified provider - single source of truth
+  const { market, timeline, playback } = useAppState();
 
-  const data = propData || contextData;
-  const activeIndex = currentIndex !== undefined ? currentIndex : currentCandleIndex;
+  // Use visible candles from state (already computed up to current index)
+  const data = market.visibleCandles;
+  const activeIndex = timeline.currentIndex;
 
   // Calculate moving averages
   const ema12 = useMemo(
@@ -82,7 +79,10 @@ const FinancialChart: React.FC<FinancialChartProps> = ({
   }, [data, showMA, ema12, ema26, sma20]);
 
   // Create scale provider
-  const xScaleProvider = useMemo(() => discontinuousTimeScaleProvider.inputDateAccessor((d: ChartCandle) => d.date), []);
+  const xScaleProvider = useMemo(
+    () => discontinuousTimeScaleProvider.inputDateAccessor((d: ChartCandle) => d.date),
+    []
+  );
 
   const { data: chartData, xScale, xAccessor, displayXAccessor } = useMemo(() => {
     if (calculatedData.length === 0) {
@@ -91,38 +91,37 @@ const FinancialChart: React.FC<FinancialChartProps> = ({
     return xScaleProvider(calculatedData);
   }, [calculatedData, xScaleProvider]);
 
-  // Get visible data range based on current index
-  const visibleData = useMemo(() => {
-    if (chartData.length === 0) return chartData;
-
-    const visibleCount = Math.min(100, chartData.length);
-    const endIndex = Math.min(activeIndex + 10, chartData.length);
-    const startIndex = Math.max(0, endIndex - visibleCount);
-
-    return chartData.slice(startIndex, endIndex);
-  }, [chartData, activeIndex]);
-
-  // Calculate x extent for visible data
+  // Calculate x extent to show recent data with some lookahead
   const xExtents = useMemo(() => {
-    if (visibleData.length === 0 || !xAccessor) return [0, 100];
-    return [xAccessor(visibleData[0]), xAccessor(visibleData[visibleData.length - 1])];
-  }, [visibleData, xAccessor]);
+    if (chartData.length === 0 || !xAccessor) return [0, 100];
+
+    const visibleCount = Math.min(80, chartData.length);
+    const endIdx = chartData.length - 1;
+    const startIdx = Math.max(0, endIdx - visibleCount + 1);
+
+    return [xAccessor(chartData[startIdx]), xAccessor(chartData[endIdx])];
+  }, [chartData, xAccessor]);
 
   // Get regime color
   const regimeColor = useMemo(() => {
-    switch (indicators.regime) {
+    switch (market.regime) {
       case 'BULL':
-        return '#00ff00';
+        return '#10b981';
       case 'BEAR':
-        return '#ff0000';
+        return '#ef4444';
       case 'CRASH':
-        return '#ff00ff';
+        return '#dc2626';
       case 'RECOVERY':
-        return '#00ffff';
+        return '#06b6d4';
       default:
-        return '#ffff00';
+        return '#f59e0b';
     }
-  }, [indicators.regime]);
+  }, [market.regime]);
+
+  // Handle click on chart to navigate
+  const handleChartClick = (e: React.MouseEvent) => {
+    // Could implement click-to-navigate functionality here
+  };
 
   if (!chartData || chartData.length === 0 || !xScale) {
     return (
@@ -146,30 +145,62 @@ const FinancialChart: React.FC<FinancialChartProps> = ({
   const volumeHeight = showVolume ? height * 0.25 : 0;
 
   return (
-    <div style={{ position: 'relative' }}>
-      {/* Regime indicator */}
+    <div style={{ position: 'relative' }} onClick={handleChartClick}>
+      {/* Top info bar */}
       <div
         style={{
           position: 'absolute',
           top: 8,
+          left: 8,
           right: 8,
-          padding: '4px 12px',
-          backgroundColor: regimeColor,
-          color: '#000',
-          borderRadius: 4,
-          fontSize: 12,
-          fontWeight: 'bold',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
           zIndex: 10,
+          pointerEvents: 'none',
         }}
       >
-        {indicators.regime}
+        {/* Left: Current return */}
+        <div
+          style={{
+            padding: '4px 12px',
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            borderRadius: 4,
+            fontSize: 12,
+          }}
+        >
+          <span style={{ color: '#888' }}>Return: </span>
+          <span
+            style={{
+              color: market.currentReturn >= 0 ? '#10b981' : '#ef4444',
+              fontWeight: 'bold',
+            }}
+          >
+            {market.currentReturn >= 0 ? '+' : ''}
+            {market.currentReturn.toFixed(2)}%
+          </span>
+        </div>
+
+        {/* Right: Regime indicator */}
+        <div
+          style={{
+            padding: '4px 12px',
+            backgroundColor: regimeColor,
+            color: '#fff',
+            borderRadius: 4,
+            fontSize: 12,
+            fontWeight: 'bold',
+          }}
+        >
+          {market.regime}
+        </div>
       </div>
 
       <ChartCanvas
         height={height}
         width={width}
         ratio={window.devicePixelRatio || 1}
-        margin={{ left: 50, right: 50, top: 10, bottom: 30 }}
+        margin={{ left: 50, right: 50, top: 40, bottom: 30 }}
         data={chartData}
         xScale={xScale}
         xAccessor={xAccessor}
@@ -179,20 +210,8 @@ const FinancialChart: React.FC<FinancialChartProps> = ({
       >
         {/* Main price chart */}
         <Chart id={1} yExtents={(d: any) => [d.high, d.low]} height={chartHeight}>
-          <XAxis
-            axisAt="bottom"
-            orient="bottom"
-            ticks={6}
-            tickStroke="#666"
-            stroke="#444"
-          />
-          <YAxis
-            axisAt="right"
-            orient="right"
-            ticks={5}
-            tickStroke="#666"
-            stroke="#444"
-          />
+          <XAxis axisAt="bottom" orient="bottom" ticks={6} tickStroke="#666" stroke="#444" />
+          <YAxis axisAt="right" orient="right" ticks={5} tickStroke="#666" stroke="#444" />
 
           <CandlestickSeries
             wickStroke={(d: any) => (d.close > d.open ? '#26a69a' : '#ef5350')}
@@ -242,7 +261,9 @@ const FinancialChart: React.FC<FinancialChartProps> = ({
             />
             <BarSeries
               yAccessor={(d: any) => d.volume}
-              fill={(d: any) => (d.close > d.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)')}
+              fill={(d: any) =>
+                d.close > d.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)'
+              }
             />
           </Chart>
         )}
@@ -251,13 +272,22 @@ const FinancialChart: React.FC<FinancialChartProps> = ({
         <MouseCoordinateX at="bottom" orient="bottom" displayFormat={format('%Y-%m-%d')} />
       </ChartCanvas>
 
-      {/* Current position indicator */}
-      {activeIndex > 0 && activeIndex < chartData.length && (
+      {/* Bottom info bar */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 8,
+          left: 8,
+          right: 8,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          pointerEvents: 'none',
+        }}
+      >
+        {/* Left: Bar info */}
         <div
           style={{
-            position: 'absolute',
-            bottom: 8,
-            left: 8,
             padding: '4px 8px',
             backgroundColor: 'rgba(0, 0, 0, 0.7)',
             color: '#fff',
@@ -265,9 +295,50 @@ const FinancialChart: React.FC<FinancialChartProps> = ({
             fontSize: 11,
           }}
         >
-          Day {activeIndex + 1} of {chartData.length}
+          Bar {activeIndex + 1} / {timeline.totalBars}
+          {market.currentCandle && ` | ${market.currentCandle.date}`}
         </div>
-      )}
+
+        {/* Right: Indicators */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            fontSize: 10,
+          }}
+        >
+          <div
+            style={{
+              padding: '3px 6px',
+              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              borderRadius: 3,
+              color: market.indicators.rsi > 70 ? '#ef4444' : market.indicators.rsi < 30 ? '#10b981' : '#888',
+            }}
+          >
+            RSI: {market.indicators.rsi.toFixed(0)}
+          </div>
+          <div
+            style={{
+              padding: '3px 6px',
+              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              borderRadius: 3,
+              color: '#888',
+            }}
+          >
+            Vol: {market.indicators.volatility.toFixed(2)}%
+          </div>
+          <div
+            style={{
+              padding: '3px 6px',
+              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              borderRadius: 3,
+              color: market.indicators.drawdown > 10 ? '#ef4444' : '#888',
+            }}
+          >
+            DD: {market.indicators.drawdown.toFixed(1)}%
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

@@ -1,12 +1,12 @@
-import { GameProvider } from './context/GameContext';
+import { AppStateProvider } from './context/AppStateProvider';
 import GameLayout from './components/GameLayout';
 import './App.css';
 
 function App() {
   return (
-    <GameProvider>
-      <GameLayout initialDataset="sp500" />
-    </GameProvider>
+    <AppStateProvider initialDataset="sp500">
+      <GameLayout />
+    </AppStateProvider>
   );
 }
 

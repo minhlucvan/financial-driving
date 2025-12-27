@@ -1,19 +1,31 @@
 import Phaser from 'phaser';
-import { GameUpdateData } from '../components/PhaserGame';
+
+// Vehicle update data reported from game to React
+export interface VehicleUpdateData {
+  velocityX: number;
+  velocityY: number;
+  angularVelocity: number;
+  isOnGround: boolean;
+  isFlipped: boolean;
+  positionX: number;
+  positionY: number;
+}
 
 export interface GameConfigOptions {
   parent: HTMLElement;
   width?: number;
   height?: number;
   scenes: Phaser.Types.Scenes.SceneType[];
-  onGameUpdate?: (data: GameUpdateData) => void;
+  onVehicleUpdate?: (data: VehicleUpdateData) => void;
   onStateChange?: (state: 'playing' | 'victory' | 'bankrupt') => void;
+  onReset?: () => void;
 }
 
 // Global game state that can be accessed from scenes
 export interface GlobalGameState {
-  onGameUpdate?: (data: GameUpdateData) => void;
+  onVehicleUpdate?: (data: VehicleUpdateData) => void;
   onStateChange?: (state: 'playing' | 'victory' | 'bankrupt') => void;
+  onReset?: () => void;
   vehicleKey: string;
   currentMarketDataKey: string;
   gameState: 'playing' | 'victory' | 'bankrupt';
@@ -27,8 +39,9 @@ export const globalGameState: GlobalGameState = {
 
 export function createGameConfig(options: GameConfigOptions): Phaser.Types.Core.GameConfig {
   // Store callbacks in global state
-  globalGameState.onGameUpdate = options.onGameUpdate;
+  globalGameState.onVehicleUpdate = options.onVehicleUpdate;
   globalGameState.onStateChange = options.onStateChange;
+  globalGameState.onReset = options.onReset;
 
   // Calculate dimensions
   const logicalWidth = 1536;
