@@ -177,6 +177,12 @@ var currentMarketDataKey = 'sp500';
 
 // HUD elements
 var marketHUD = null;
+var wealthHUD = null;
+var gameOverScreen = null;
+
+// Game state
+var gameState = 'playing'; // 'playing', 'victory', 'bankrupt'
+var lastTerrainSlope = 0;
 
 function preload ()
 {
@@ -239,6 +245,24 @@ function create ()
 
     // Create HUD for market info
     createMarketHUD(this);
+
+    // Initialize wealth engine
+    wealthEngine = new WealthEngine({
+        startingWealth: 10000,
+        target: 1000000,
+        sensitivity: 0.015,
+        passiveRate: 0.0002
+    });
+    gameState = 'playing';
+
+    // Create wealth HUD
+    createWealthHUD(this);
+
+    // Restart key
+    var RKey = this.input.keyboard.addKey('R');
+    RKey.on('down', function () {
+        restartGame(this);
+    }, this);
 
     this.matter.add.mouseSpring();
 
@@ -367,7 +391,7 @@ function createMarketHUD(scene) {
         .setScrollFactor(0).setDepth(1000);
 
     // Controls hint (bottom left)
-    scene.add.text(16, screen_height - 40, 'N: Next Dataset | F: Fullscreen | Arrows: Drive', {
+    scene.add.text(16, screen_height - 40, 'Arrows: Drive | R: Restart | N: Dataset | F: Fullscreen', {
         fontFamily: 'monospace',
         fontSize: '11px',
         color: '#888888',
@@ -469,14 +493,276 @@ function updateHUDRegime() {
     }
 }
 
+/**
+ * Create Wealth HUD - Progress toward financial freedom
+ */
+function createWealthHUD(scene) {
+    wealthHUD = {
+        container: null,
+        progressBar: null,
+        progressFill: null,
+        wealthText: null,
+        targetText: null,
+        drawdownText: null,
+        daysText: null
+    };
+
+    const hudY = 85;
+    const barWidth = 250;
+    const barHeight = 20;
+
+    // Wealth display
+    wealthHUD.wealthText = scene.add.text(16, hudY, '$10,000', {
+        fontFamily: 'monospace',
+        fontSize: '24px',
+        fontStyle: 'bold',
+        color: '#00ff88',
+        backgroundColor: '#000000cc',
+        padding: { x: 10, y: 6 }
+    }).setScrollFactor(0).setDepth(1001);
+
+    // Progress bar background
+    wealthHUD.progressBar = scene.add.graphics();
+    wealthHUD.progressBar.setScrollFactor(0).setDepth(1001);
+    wealthHUD.progressBar.fillStyle(0x333333, 0.9);
+    wealthHUD.progressBar.fillRoundedRect(16, hudY + 40, barWidth, barHeight, 4);
+
+    // Progress bar fill
+    wealthHUD.progressFill = scene.add.graphics();
+    wealthHUD.progressFill.setScrollFactor(0).setDepth(1002);
+
+    // Target text
+    wealthHUD.targetText = scene.add.text(16 + barWidth + 10, hudY + 40, 'Target: $1M', {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#ffcc00',
+        backgroundColor: '#000000aa',
+        padding: { x: 6, y: 3 }
+    }).setScrollFactor(0).setDepth(1001);
+
+    // Stats row
+    wealthHUD.drawdownText = scene.add.text(16, hudY + 68, 'DD: 0% | Days: 0', {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#aaaaaa',
+        backgroundColor: '#000000aa',
+        padding: { x: 6, y: 3 }
+    }).setScrollFactor(0).setDepth(1001);
+
+    // Goal label
+    scene.add.text(16, hudY + 92, 'GOAL: FINANCIAL FREEDOM', {
+        fontFamily: 'monospace',
+        fontSize: '10px',
+        color: '#888888',
+        padding: { x: 6, y: 2 }
+    }).setScrollFactor(0).setDepth(1001);
+}
+
+/**
+ * Update Wealth HUD each frame
+ */
+function updateWealthHUD() {
+    if (!wealthHUD || !wealthEngine) return;
+
+    // Update wealth text
+    const wealth = wealthEngine.getWealthDisplay();
+    wealthHUD.wealthText.setText(wealth);
+
+    // Color based on performance
+    const progress = wealthEngine.getProgress();
+    if (wealthEngine.wealth >= wealthEngine.startingWealth * 1.1) {
+        wealthHUD.wealthText.setColor('#00ff88'); // Green - profit
+    } else if (wealthEngine.wealth < wealthEngine.startingWealth * 0.9) {
+        wealthHUD.wealthText.setColor('#ff4444'); // Red - loss
+    } else {
+        wealthHUD.wealthText.setColor('#ffcc00'); // Yellow - near start
+    }
+
+    // Update progress bar
+    const barWidth = 250;
+    const barHeight = 20;
+    const fillWidth = Math.max(4, (progress / 100) * barWidth);
+
+    wealthHUD.progressFill.clear();
+
+    // Gradient effect based on progress
+    let fillColor = 0x4CAF50; // Green
+    if (progress < 25) fillColor = 0xFFC107; // Yellow
+    if (progress < 10) fillColor = 0xFF5722; // Orange
+    if (wealthEngine.getDrawdown() > 20) fillColor = 0xF44336; // Red during drawdown
+
+    wealthHUD.progressFill.fillStyle(fillColor, 1);
+    wealthHUD.progressFill.fillRoundedRect(16, 125, fillWidth, barHeight, 4);
+
+    // Update stats
+    const drawdown = wealthEngine.getDrawdown().toFixed(1);
+    const days = wealthEngine.daysTraded;
+    wealthHUD.drawdownText.setText('DD: ' + drawdown + '% | Days: ' + days + ' | Progress: ' + progress.toFixed(1) + '%');
+}
+
+/**
+ * Show game over / victory screen
+ */
+function showGameOverScreen(scene, result) {
+    gameOverScreen = {};
+
+    const summary = wealthEngine.getSummary();
+    const isVictory = result === 'freedom';
+
+    // Overlay
+    gameOverScreen.overlay = scene.add.rectangle(
+        screen_width / 2, screen_height / 2,
+        screen_width, screen_height,
+        isVictory ? 0x004400 : 0x440000, 0.85
+    ).setScrollFactor(0).setDepth(2000);
+
+    // Title
+    const titleText = isVictory ? 'FINANCIAL FREEDOM!' : 'BANKRUPT!';
+    const titleColor = isVictory ? '#00ff00' : '#ff0000';
+
+    gameOverScreen.title = scene.add.text(screen_width / 2, 80, titleText, {
+        fontFamily: 'monospace',
+        fontSize: '48px',
+        fontStyle: 'bold',
+        color: titleColor
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(2001);
+
+    // Subtitle
+    const subtitle = isVictory
+        ? 'You built your wealth machine!'
+        : 'The market claimed another victim...';
+
+    gameOverScreen.subtitle = scene.add.text(screen_width / 2, 130, subtitle, {
+        fontFamily: 'monospace',
+        fontSize: '18px',
+        color: '#cccccc'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(2001);
+
+    // Stats panel
+    const statsY = 180;
+    const stats = [
+        'Final Wealth: ' + wealthEngine.getWealthDisplay(),
+        'Starting: $' + summary.startingWealth.toLocaleString(),
+        'Target: ' + wealthEngine.getTargetDisplay(),
+        'Progress: ' + summary.progress.toFixed(1) + '%',
+        '',
+        'Days Traded: ' + summary.daysTraded,
+        'Peak Wealth: $' + Math.floor(summary.peakWealth).toLocaleString(),
+        'Max Drawdown: ' + summary.maxDrawdown.toFixed(1) + '%',
+        '',
+        'Total Gains: $' + Math.floor(summary.totalGains).toLocaleString(),
+        'Total Losses: $' + Math.floor(summary.totalLosses).toLocaleString(),
+        'CAGR: ' + summary.cagr.toFixed(1) + '%'
+    ];
+
+    gameOverScreen.stats = scene.add.text(screen_width / 2, statsY, stats.join('\n'), {
+        fontFamily: 'monospace',
+        fontSize: '16px',
+        color: '#ffffff',
+        lineSpacing: 8,
+        align: 'center'
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(2001);
+
+    // Restart prompt
+    gameOverScreen.restart = scene.add.text(screen_width / 2, screen_height - 80,
+        'Press R to restart', {
+        fontFamily: 'monospace',
+        fontSize: '24px',
+        color: '#ffff00',
+        backgroundColor: '#000000aa',
+        padding: { x: 20, y: 10 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(2001);
+
+    // Market info
+    const datasetInfo = marketDataLoader.getDatasetInfo(currentMarketDataKey);
+    gameOverScreen.market = scene.add.text(screen_width / 2, screen_height - 40,
+        'Market: ' + (datasetInfo ? datasetInfo.name : currentMarketDataKey), {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#888888'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(2001);
+}
+
+/**
+ * Hide game over screen
+ */
+function hideGameOverScreen() {
+    if (!gameOverScreen) return;
+
+    if (gameOverScreen.overlay) gameOverScreen.overlay.destroy();
+    if (gameOverScreen.title) gameOverScreen.title.destroy();
+    if (gameOverScreen.subtitle) gameOverScreen.subtitle.destroy();
+    if (gameOverScreen.stats) gameOverScreen.stats.destroy();
+    if (gameOverScreen.restart) gameOverScreen.restart.destroy();
+    if (gameOverScreen.market) gameOverScreen.market.destroy();
+
+    gameOverScreen = null;
+}
+
+/**
+ * Restart the game
+ */
+function restartGame(scene) {
+    // Hide game over screen
+    hideGameOverScreen();
+
+    // Reset wealth engine
+    wealthEngine.reset();
+
+    // Reset terrain
+    marketTerrainGenerator.reset();
+    marketIndicators.reset();
+
+    // Reset game state
+    gameState = 'playing';
+
+    console.log('Game restarted!');
+}
+
+/**
+ * Get current terrain slope from market data
+ */
+function getCurrentTerrainSlope() {
+    if (!NoiseGenerator.isReady()) return 0;
+
+    const metadata = marketTerrainGenerator.getTerrainMetadata();
+    if (metadata && metadata.dailyReturn !== undefined) {
+        // Convert daily return percentage to slope value
+        // -5% to +5% maps to -32 to +32
+        return (metadata.dailyReturn / 5) * 32;
+    }
+    return 0;
+}
+
 function update()
 {
-    vehicle.processKey(cursors);
-    chunkloader.processChunk(this, vehicle.mainBody.x);
-    backgroundloader.updateBackground(this, vehicle.mainBody.x);
+    // Only process game logic if playing
+    if (gameState === 'playing') {
+        vehicle.processKey(cursors);
+        chunkloader.processChunk(this, vehicle.mainBody.x);
+        backgroundloader.updateBackground(this, vehicle.mainBody.x);
 
-    // Update market HUD
-    updateHUDRegime();
+        // Update market HUD
+        updateHUDRegime();
+
+        // Get terrain slope and update wealth
+        const slope = getCurrentTerrainSlope();
+        const velocity = vehicle.mainBody.body.velocity.x;
+
+        // Only update wealth when car is moving
+        if (Math.abs(velocity) > 0.5) {
+            wealthEngine.update(slope, velocity);
+        }
+
+        // Update wealth HUD
+        updateWealthHUD();
+
+        // Check for game end
+        if (wealthEngine.gameResult) {
+            gameState = wealthEngine.gameResult;
+            showGameOverScreen(this, wealthEngine.gameResult);
+        }
+    }
 }
 
 
