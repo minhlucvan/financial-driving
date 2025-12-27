@@ -120,39 +120,81 @@ The dashboard shows 3 key indicators that affect road conditions:
 
 ## 🏆 Scoring System
 
-### Primary Score: Risk-Adjusted Returns
+### Primary Score: Drive Score (Calmar Ratio)
+
+The **Calmar Ratio** is used by real hedge funds to measure skill: how much return did you get relative to your worst crash?
 
 ```
-FINAL SCORE = Total Return × Safety Multiplier
+DRIVE SCORE = (Total Return % / Max Drawdown %) × 100
 ```
 
-| Metric | What It Measures | How It's Shown |
-|--------|------------------|----------------|
-| **Total Return** | % gain/loss on capital | Distance traveled |
-| **Max Drawdown** | Worst crash during run | Damage taken |
-| **Volatility** | Bumpiness of your returns | Ride smoothness |
-| **Safety Multiplier** | Reward for not crashing | Bonus points |
+| Metric | Real Name | Driving Term | What It Shows |
+|--------|-----------|--------------|---------------|
+| **Distance** | Total Return % | km traveled | Raw performance |
+| **Worst Crash** | Max Drawdown % | Damage % | Biggest mistake |
+| **Drive Score** | Calmar Ratio | Skill rating | Risk-adjusted skill |
 
-### Safety Multiplier Table
+---
 
-| Max Drawdown | Multiplier | Rating |
-|--------------|------------|--------|
-| < 5% | ×1.5 | ⭐⭐⭐ Smooth Operator |
-| 5-10% | ×1.2 | ⭐⭐ Careful Driver |
-| 10-20% | ×1.0 | ⭐ Normal |
-| 20-30% | ×0.8 | ⚠️ Reckless |
-| > 30% | ×0.5 | 💀 Crash Penalty |
+### Driver Tier System
+
+| Drive Score | Tier | Real Equivalent |
+|-------------|------|-----------------|
+| > 500 | 🏆 Elite Driver | Top hedge fund |
+| 300-500 | 🥇 Pro Driver | Good fund manager |
+| 150-300 | 🥈 Skilled Driver | Above average investor |
+| 50-150 | 🥉 Learner | Average investor |
+| < 50 | 💀 Crashed | Poor risk management |
+
+---
+
+### Bonus Multipliers
+
+Earn bonus multipliers for exceptional driving:
+
+| Achievement | Multiplier | Condition |
+|-------------|------------|-----------|
+| **No Crash** | ×1.2 | Max Drawdown < 10% |
+| **Storm Survivor** | ×1.1 | Finished during high volatility period |
+| **Beat the Market** | ×1.3 | Outperformed buy-and-hold |
+| **Quick Recovery** | ×1.1 | Recovered from 10%+ drawdown in < 20 days |
+
+```
+FINAL SCORE = Drive Score × Bonus Multipliers
+```
+
+---
 
 ### Example Scoring
 
 ```
 Player A: +50% return, 25% max drawdown
-Score = 50 × 0.8 = 40 points
+Drive Score = (50 / 25) × 100 = 200 → Skilled Driver
 
-Player B: +30% return, 8% max drawdown
-Score = 30 × 1.2 = 36 points
+Player B: +30% return, 5% max drawdown
+Drive Score = (30 / 5) × 100 = 600 → Elite Driver
++ No Crash bonus (×1.2)
+Final Score = 600 × 1.2 = 720
 
-Player A wins but Player B drove better!
+Player A made more money, but Player B is the better driver!
+```
+
+---
+
+### Dashboard Stats
+
+```
+┌─────────────────────────────────────────────────┐
+│  DRIVE SCORE: 450        Tier: 🥇 Pro Driver    │
+├─────────────────────────────────────────────────┤
+│  📈 Distance:     +35.2%  (Total Return)        │
+│  💥 Worst Crash:  -8.5%   (Max Drawdown)        │
+│  🎯 Win Rate:     62%     (Positive Days)       │
+│  ⏱️ Recovery:     12 days (From last crash)     │
+├─────────────────────────────────────────────────┤
+│  Bonuses: No Crash ×1.2 | Beat Market ×1.3     │
+│  FINAL SCORE: 450 × 1.56 = 702                  │
+└─────────────────────────────────────────────────┘
 ```
 
 ---
@@ -163,8 +205,9 @@ Player A wins but Player B drove better!
 |------|------|----------|
 | **Survival** | Don't go broke | Finish the period with capital > 0 |
 | **Target** | Hit return goal | Reach +X% return |
-| **Challenge** | Beat benchmark | Outperform buy-and-hold |
-| **Efficiency** | Best risk-adjusted | Highest score (return × safety) |
+| **Challenge** | Beat benchmark | Outperform buy-and-hold (earn ×1.3 bonus) |
+| **Pro Driver** | Reach tier | Achieve Drive Score > 300 |
+| **Elite** | Master the road | Achieve Drive Score > 500 |
 
 ---
 
@@ -187,10 +230,13 @@ Player A wins but Player B drove better!
 2. Choose Time Period (2008 crash, 2020 COVID, etc.)
 3. Start with $10,000 and 0% position
 4. Drive through history:
-   - Read indicators
-   - Adjust position
+   - Read indicators (Trend, Volatility, Value)
+   - Adjust position (Accelerate, Brake, Coast)
    - Survive the road
-5. Final score = Return × Safety Multiplier
+5. End of run:
+   - Drive Score = (Return / Max Drawdown) × 100
+   - Apply bonus multipliers
+   - Get your Driver Tier ranking
 ```
 
 ---
