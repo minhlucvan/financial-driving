@@ -1,0 +1,84 @@
+{
+  "version": "1.0.0",
+  "description": "Available market datasets for Financial Drive",
+  "datasets": [
+    {
+      "key": "sp500",
+      "path": "./assets/market/sp500.json",
+      "name": "S&P 500 ETF",
+      "symbol": "SPY",
+      "difficulty": "easy",
+      "category": "index",
+      "description": "Steady bull market - good for learning"
+    },
+    {
+      "key": "steady_growth",
+      "path": "./assets/market/steady_growth.json",
+      "name": "Blue Chip Steady Growth",
+      "symbol": "BLUE",
+      "difficulty": "easy",
+      "category": "stock",
+      "description": "Low volatility blue chip - conservative play"
+    },
+    {
+      "key": "bitcoin",
+      "path": "./assets/market/bitcoin.json",
+      "name": "Bitcoin",
+      "symbol": "BTC",
+      "difficulty": "hard",
+      "category": "crypto",
+      "description": "High volatility crypto - for experienced players"
+    },
+    {
+      "key": "meme_stock",
+      "path": "./assets/market/meme_stock.json",
+      "name": "Volatile Meme Stock",
+      "symbol": "MEME",
+      "difficulty": "extreme",
+      "category": "stock",
+      "description": "Extreme volatility - pump and dump patterns"
+    }
+  ],
+  "scenarios": [
+    {
+      "key": "crash_2008",
+      "path": "./assets/market/scenarios/crash_2008.json",
+      "name": "2008 Financial Crisis",
+      "symbol": "SPY",
+      "difficulty": "extreme",
+      "category": "scenario",
+      "description": "Lehman Brothers collapse - survive the crash",
+      "historicalEvent": "2008 Financial Crisis"
+    },
+    {
+      "key": "covid_2020",
+      "path": "./assets/market/scenarios/covid_2020.json",
+      "name": "COVID-19 Crash & Recovery",
+      "symbol": "SPY",
+      "difficulty": "hard",
+      "category": "scenario",
+      "description": "Fastest bear market ever - V-shaped recovery",
+      "historicalEvent": "COVID-19 Pandemic"
+    },
+    {
+      "key": "dotcom_2000",
+      "path": "./assets/market/scenarios/dotcom_2000.json",
+      "name": "Dotcom Bubble Burst",
+      "symbol": "QQQ",
+      "difficulty": "extreme",
+      "category": "scenario",
+      "description": "Tech bubble collapse - multi-year decline",
+      "historicalEvent": "Dotcom Bubble"
+    },
+    {
+      "key": "crypto_winter_2022",
+      "path": "./assets/market/scenarios/crypto_winter_2022.json",
+      "name": "Crypto Winter 2022",
+      "symbol": "BTC",
+      "difficulty": "extreme",
+      "category": "scenario",
+      "description": "Terra/Luna collapse, FTX bankruptcy",
+      "historicalEvent": "2022 Crypto Winter"
+    }
+  ]
+}
