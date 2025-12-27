@@ -1,37 +1,14 @@
-<!doctype html> 
-<html lang="en"> 
-<head> 
+<!DOCTYPE html>
+<html lang="en">
+  <head>
     <meta charset="UTF-8" />
-    <title>car go brrr!</title>
-    <link rel="icon" type="image/x-icon" href="./assets/favicon/favicon.ico">
-    <script src="//cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.js"></script>
-    <style>
-        html,
-        body {
-            margin: 0px;
-            padding: 0px;
-            overflow: hidden;
-            height: 100%;
-        }
-    </style>
-</head>
-
-<body>
-
-    <script src='src/base.js'></script>
-    <script src='src/noiseGenerator.js'></script>
-    <script src='src/marketDataLoader.js'></script>
-    <script src='src/marketIndicators.js'></script>
-    <script src='src/wealthEngine.js'></script>
-    <script src='src/marketTerrainGenerator.js'></script>
-    <script src='src/terrainGenerator.js'></script>
-    <script src='src/chunk.js'></script>
-    <script src='src/chunkLoader.js'></script>
-    <script src='src/vehicle.js'></script>
-    <script src='src/backgroundLoader.js'></script>
-    <script src='src/tradingTerminal.js'></script>
-    <script src='src/dualViewHUD.js'></script>
-    <script src='src/main.js'></script>
-
-</body>
+    <link rel="icon" type="image/x-icon" href="/favicon/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Financial Drive - Market Simulation Game</title>
+    <meta name="description" content="A driving game where market data drives the terrain. Learn financial concepts through physics-based gameplay." />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
