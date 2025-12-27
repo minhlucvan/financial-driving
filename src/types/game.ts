@@ -27,10 +27,23 @@ export interface VehicleState {
 export interface PositionState {
   isOpen: boolean;
   entryPrice: number;
+  entryIndex: number;  // Bar index when position was opened
   currentPrice: number;
   unrealizedPnL: number;
+  unrealizedPnLPercent: number;
   realizedPnL: number;
-  size: number;
+  size: number;  // 0 to 1 (percentage of wealth invested)
+  exposure: number;  // 0 = all cash (flat road), 1 = fully invested
+}
+
+// Trading actions
+export type TradeAction = 'buy' | 'sell' | 'close';
+
+export interface TradeOrder {
+  action: TradeAction;
+  size: number;  // 0-1 as percentage
+  price: number;
+  index: number;
 }
 
 export interface GameSettings {

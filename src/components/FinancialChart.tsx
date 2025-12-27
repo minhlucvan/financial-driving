@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { format } from 'd3-time-format';
+import { timeFormat } from 'd3-time-format';
+import { format as d3Format } from 'd3-format';
 import { ChartCanvas, Chart } from '@react-financial-charts/core';
 import { XAxis, YAxis } from '@react-financial-charts/axes';
 import { CandlestickSeries, BarSeries, LineSeries } from '@react-financial-charts/series';
@@ -210,8 +211,8 @@ const FinancialChart: React.FC<FinancialChartProps> = ({
       >
         {/* Main price chart */}
         <Chart id={1} yExtents={(d: any) => [d.high, d.low]} height={chartHeight}>
-          <XAxis axisAt="bottom" orient="bottom" ticks={6} tickStroke="#666" stroke="#444" />
-          <YAxis axisAt="right" orient="right" ticks={5} tickStroke="#666" stroke="#444" />
+          <XAxis axisAt="bottom" orient="bottom" ticks={6} strokeStyle="#444" />
+          <YAxis axisAt="right" orient="right" ticks={5} strokeStyle="#444" />
 
           <CandlestickSeries
             wickStroke={(d: any) => (d.close > d.open ? '#26a69a' : '#ef5350')}
@@ -221,13 +222,13 @@ const FinancialChart: React.FC<FinancialChartProps> = ({
 
           {showMA && (
             <>
-              <LineSeries yAccessor={sma20.accessor()} stroke="#ff7f0e" strokeWidth={1} />
-              <LineSeries yAccessor={ema12.accessor()} stroke="#2196f3" strokeWidth={1} />
-              <LineSeries yAccessor={ema26.accessor()} stroke="#e91e63" strokeWidth={1} />
+              <LineSeries yAccessor={sma20.accessor()} strokeStyle="#ff7f0e" strokeWidth={1} />
+              <LineSeries yAccessor={ema12.accessor()} strokeStyle="#2196f3" strokeWidth={1} />
+              <LineSeries yAccessor={ema26.accessor()} strokeStyle="#e91e63" strokeWidth={1} />
             </>
           )}
 
-          <MouseCoordinateY at="right" orient="right" displayFormat={format('.2f')} />
+          <MouseCoordinateY at="right" orient="right" displayFormat={d3Format('.2f')} />
 
           <OHLCTooltip origin={[-40, 0]} />
 
@@ -255,21 +256,20 @@ const FinancialChart: React.FC<FinancialChartProps> = ({
               axisAt="left"
               orient="left"
               ticks={3}
-              tickFormat={format('.2s')}
-              tickStroke="#666"
-              stroke="#444"
+              tickFormat={d3Format('.2s')}
+              strokeStyle="#444"
             />
             <BarSeries
               yAccessor={(d: any) => d.volume}
-              fill={(d: any) =>
+              fillStyle={(d: any) =>
                 d.close > d.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)'
               }
             />
           </Chart>
         )}
 
-        <CrossHairCursor stroke="#999" />
-        <MouseCoordinateX at="bottom" orient="bottom" displayFormat={format('%Y-%m-%d')} />
+        <CrossHairCursor strokeStyle="#999" />
+        <MouseCoordinateX at="bottom" orient="bottom" displayFormat={timeFormat('%Y-%m-%d')} />
       </ChartCanvas>
 
       {/* Bottom info bar */}

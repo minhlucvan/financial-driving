@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useAppState } from '../context/AppStateProvider';
-import PhaserGame, { PhaserGameHandle } from './PhaserGame';
+import PhaserGame, { type PhaserGameHandle } from './PhaserGame';
 import FinancialChart from './FinancialChart';
 import PlaybackControls from './PlaybackControls';
+import TradingControls from './TradingControls';
 import type { ViewMode } from '../types';
 
 const VIEW_MODE_HEIGHTS: Record<ViewMode, { chart: number; game: number }> = {
@@ -161,6 +162,20 @@ const GameLayout: React.FC = () => {
           }}
         >
           <PlaybackControls compact={viewMode === 'drive_focus'} showSpeedControl={viewMode !== 'drive_focus'} />
+        </div>
+
+        {/* Trading Controls - Bottom Center */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 20,
+            pointerEvents: 'auto',
+          }}
+        >
+          <TradingControls compact={viewMode === 'drive_focus'} />
         </div>
 
         {/* Overlay HUD - Top */}

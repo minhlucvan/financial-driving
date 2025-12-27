@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ChartCandle, RawMarketData, MarketDataset, ProcessedCandle } from '../types';
+import type { ChartCandle, RawMarketData, MarketDataset, ProcessedCandle } from '../types';
 
 const MARKET_DATASETS = ['sp500', 'bitcoin', 'meme_stock', 'steady_growth', 'crash_2008', 'covid_2020'];
 

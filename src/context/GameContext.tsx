@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useReducer, useCallback, ReactNode } from 'react';
-import {
+import React, { createContext, useContext, useReducer, useCallback, type ReactNode } from 'react';
+import type {
   GameState,
   ViewMode,
   WealthState,
@@ -62,10 +62,13 @@ const initialState: GameContextState = {
   position: {
     isOpen: false,
     entryPrice: 0,
+    entryIndex: 0,
     currentPrice: 0,
     unrealizedPnL: 0,
+    unrealizedPnLPercent: 0,
     realizedPnL: 0,
     size: 0,
+    exposure: 0,
   },
   settings: {
     selectedVehicle: 'car2',

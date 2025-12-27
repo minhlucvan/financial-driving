@@ -179,10 +179,13 @@ export const INITIAL_VEHICLE_STATE: VehicleState = {
 export const INITIAL_POSITION_STATE: PositionState = {
   isOpen: false,
   entryPrice: 0,
+  entryIndex: 0,
   currentPrice: 0,
   unrealizedPnL: 0,
+  unrealizedPnLPercent: 0,
   realizedPnL: 0,
   size: 0,
+  exposure: 0,  // Start with no exposure - flat road until user buys
 };
 
 export const INITIAL_APP_STATE: UnifiedAppState = {

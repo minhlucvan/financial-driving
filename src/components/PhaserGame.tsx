@@ -33,6 +33,7 @@ const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
       physics,
       wealth,
       market,
+      position,
       datasetName,
     } = useAppState();
 
@@ -65,6 +66,8 @@ const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
             regime: market.regime,
             wealth: wealth.currentWealth,
             datasetName: datasetName,
+            exposure: position.exposure,
+            isPositionOpen: position.isOpen,
           });
         }
       },
@@ -132,9 +135,11 @@ const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
           regime: market.regime,
           wealth: wealth.currentWealth,
           datasetName: datasetName,
+          exposure: position.exposure,
+          isPositionOpen: position.isOpen,
         });
       }
-    }, [terrain, physics, wealth, market.regime, datasetName]);
+    }, [terrain, physics, wealth, market.regime, datasetName, position]);
 
     // Handle resize
     useEffect(() => {

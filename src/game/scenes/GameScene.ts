@@ -319,9 +319,11 @@ export class GameScene extends Phaser.Scene {
       bodySprite.rotation = mainBody.angle;
 
       // Color based on leverage (more red = more leveraged)
+      const blueColor = new Phaser.Display.Color(59, 130, 246); // Blue (low leverage)
+      const redColor = new Phaser.Display.Color(239, 68, 68); // Red (high leverage)
       const leverageColor = Phaser.Display.Color.Interpolate.ColorWithColor(
-        { r: 59, g: 130, b: 246 }, // Blue (low leverage)
-        { r: 239, g: 68, b: 68 }, // Red (high leverage)
+        blueColor,
+        redColor,
         3,
         (this.externalState.leverage - 0.5) / 2.5
       );

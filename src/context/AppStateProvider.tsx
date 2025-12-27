@@ -58,6 +58,9 @@ type AppAction =
   | { type: 'UPDATE_VEHICLE'; payload: Partial<VehicleState> }
   // Position updates
   | { type: 'UPDATE_POSITION'; payload: Partial<PositionState> }
+  // Trading actions
+  | { type: 'OPEN_POSITION'; payload: { size: number } }
+  | { type: 'CLOSE_POSITION' }
   // UI updates
   | { type: 'SET_VIEW_MODE'; payload: ViewMode }
   | { type: 'SET_GAME_STATE'; payload: GameState }
@@ -123,11 +126,15 @@ function calculateIndicators(
 
 function calculateTerrainState(
   market: CurrentMarketState,
-  leverage: number
+  leverage: number,
+  exposure: number = 0
 ): TerrainState {
-  const currentSlope = market.terrainSlope * leverage;
-  const currentRoughness = market.roadRoughness;
-  const leverageAmplification = leverage;
+  // When exposure = 0 (no position), terrain is flat
+  // When exposure = 1 (fully invested), terrain reflects market slope * leverage
+  const currentSlope = market.terrainSlope * leverage * exposure;
+  // Roughness is also reduced when not invested (smooth ride when in cash)
+  const currentRoughness = market.roadRoughness * exposure;
+  const leverageAmplification = leverage * exposure;
 
   return { currentSlope, currentRoughness, leverageAmplification };
 }
@@ -240,7 +247,7 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
     case 'LOAD_DATASET_SUCCESS': {
       const data = action.payload.data;
       const market = deriveMarketState(data, 0);
-      const terrain = calculateTerrainState(market, state.wealth.leverage);
+      const terrain = calculateTerrainState(market, state.wealth.leverage, state.position.exposure);
       const physics = calculatePhysicsModifiers(state.wealth, market);
 
       return {
@@ -271,7 +278,7 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
     case 'SET_TIMELINE_INDEX': {
       const newIndex = Math.max(0, Math.min(action.payload, state.rawData.length - 1));
       const market = deriveMarketState(state.rawData, newIndex);
-      const terrain = calculateTerrainState(market, state.wealth.leverage);
+      const terrain = calculateTerrainState(market, state.wealth.leverage, state.position.exposure);
       const physics = calculatePhysicsModifiers(state.wealth, market);
 
       return {
@@ -328,8 +335,41 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
         state.rawData.length - 1
       );
       const market = deriveMarketState(state.rawData, newIndex);
-      const terrain = calculateTerrainState(market, state.wealth.leverage);
-      const physics = calculatePhysicsModifiers(state.wealth, market);
+
+      // Calculate position P&L if position is open
+      let newPosition = state.position;
+      let newWealth = state.wealth;
+
+      if (state.position.isOpen && state.position.exposure > 0) {
+        const currentPrice = market.currentPrice;
+        const entryPrice = state.position.entryPrice;
+        const pnlPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+        const pnlAmount = state.wealth.currentWealth * state.position.exposure * (pnlPercent / 100);
+
+        newPosition = {
+          ...state.position,
+          currentPrice,
+          unrealizedPnL: pnlAmount,
+          unrealizedPnLPercent: pnlPercent * state.position.exposure,
+        };
+
+        // Update wealth with unrealized P&L
+        const newWealthValue = state.wealth.startingWealth + state.position.realizedPnL + pnlAmount;
+        const allTimeHigh = Math.max(state.wealth.allTimeHigh, newWealthValue);
+        const drawdown = allTimeHigh > 0 ? (allTimeHigh - newWealthValue) / allTimeHigh : 0;
+
+        newWealth = {
+          ...state.wealth,
+          currentWealth: newWealthValue,
+          allTimeHigh,
+          drawdown,
+          isInRecovery: drawdown > 0.05,
+          stressLevel: Math.min(1, drawdown * 2),
+        };
+      }
+
+      const terrain = calculateTerrainState(market, newWealth.leverage, newPosition.exposure);
+      const physics = calculatePhysicsModifiers(newWealth, market);
 
       const shouldPause = newIndex >= state.rawData.length - 1;
 
@@ -346,13 +386,15 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
         market,
         terrain,
         physics,
+        position: newPosition,
+        wealth: newWealth,
       };
     }
 
     case 'UPDATE_WEALTH': {
       const newWealth = { ...state.wealth, ...action.payload };
       const physics = calculatePhysicsModifiers(newWealth, state.market);
-      const terrain = calculateTerrainState(state.market, newWealth.leverage);
+      const terrain = calculateTerrainState(state.market, newWealth.leverage, state.position.exposure);
 
       return {
         ...state,
@@ -365,7 +407,7 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
     case 'SET_LEVERAGE': {
       const leverage = Math.max(0.5, Math.min(3.0, action.payload));
       const newWealth = { ...state.wealth, leverage };
-      const terrain = calculateTerrainState(state.market, leverage);
+      const terrain = calculateTerrainState(state.market, leverage, state.position.exposure);
       const physics = calculatePhysicsModifiers(newWealth, state.market);
 
       return {
@@ -400,6 +442,68 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
         position: { ...state.position, ...action.payload },
       };
 
+    case 'OPEN_POSITION': {
+      const size = Math.max(0, Math.min(1, action.payload.size));
+      if (size === 0) return state;
+
+      const entryPrice = state.market.currentPrice;
+      const newPosition: PositionState = {
+        isOpen: true,
+        entryPrice,
+        entryIndex: state.timeline.currentIndex,
+        currentPrice: entryPrice,
+        unrealizedPnL: 0,
+        unrealizedPnLPercent: 0,
+        realizedPnL: state.position.realizedPnL,
+        size,
+        exposure: size,
+      };
+
+      // Recalculate terrain with new exposure (terrain will now reflect market)
+      const terrain = calculateTerrainState(state.market, state.wealth.leverage, size);
+
+      return {
+        ...state,
+        position: newPosition,
+        terrain,
+      };
+    }
+
+    case 'CLOSE_POSITION': {
+      if (!state.position.isOpen) return state;
+
+      // Realize the P&L
+      const realizedPnL = state.position.realizedPnL + state.position.unrealizedPnL;
+
+      const newPosition: PositionState = {
+        isOpen: false,
+        entryPrice: 0,
+        entryIndex: 0,
+        currentPrice: 0,
+        unrealizedPnL: 0,
+        unrealizedPnLPercent: 0,
+        realizedPnL,
+        size: 0,
+        exposure: 0,
+      };
+
+      // Terrain goes flat when closing position (exposure = 0)
+      const terrain = calculateTerrainState(state.market, state.wealth.leverage, 0);
+
+      // Update wealth to reflect realized P&L
+      const newWealth: WealthState = {
+        ...state.wealth,
+        currentWealth: state.wealth.startingWealth + realizedPnL,
+      };
+
+      return {
+        ...state,
+        position: newPosition,
+        terrain,
+        wealth: newWealth,
+      };
+    }
+
     case 'SET_VIEW_MODE':
       return {
         ...state,
@@ -414,7 +518,8 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
 
     case 'RESET_GAME': {
       const market = deriveMarketState(state.rawData, 0);
-      const terrain = calculateTerrainState(market, INITIAL_WEALTH_STATE.leverage);
+      // Start with no exposure (flat terrain) until user opens a position
+      const terrain = calculateTerrainState(market, INITIAL_WEALTH_STATE.leverage, INITIAL_POSITION_STATE.exposure);
       const physics = calculatePhysicsModifiers(INITIAL_WEALTH_STATE, market);
 
       return {
@@ -463,6 +568,10 @@ interface AppStateContextValue extends UnifiedAppState {
 
   // Position updates
   updatePosition: (position: Partial<PositionState>) => void;
+
+  // Trading controls
+  openPosition: (size?: number) => void;
+  closePosition: () => void;
 
   // UI controls
   setViewMode: (mode: ViewMode) => void;
@@ -657,6 +766,15 @@ export function AppStateProvider({
     dispatch({ type: 'UPDATE_POSITION', payload: position });
   }, []);
 
+  // Trading controls
+  const openPosition = useCallback((size: number = 1) => {
+    dispatch({ type: 'OPEN_POSITION', payload: { size } });
+  }, []);
+
+  const closePosition = useCallback(() => {
+    dispatch({ type: 'CLOSE_POSITION' });
+  }, []);
+
   const setViewMode = useCallback((mode: ViewMode) => {
     dispatch({ type: 'SET_VIEW_MODE', payload: mode });
   }, []);
@@ -698,6 +816,8 @@ export function AppStateProvider({
     updateWealth,
     updateVehicle,
     updatePosition,
+    openPosition,
+    closePosition,
     setViewMode,
     cycleViewMode,
     setGameState,
