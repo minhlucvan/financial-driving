@@ -280,6 +280,183 @@ The Trading Terminal is your "cockpit dashboard" — allowing you to place order
 
 ---
 
+### 🖥 Dual-View System: See & Feel
+
+The game uses a **split-screen architecture** that separates what you SEE from what you FEEL:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  📊 CHART VIEW (Where you SEE & DRAW)                           │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │       ┃   ┃                                               │  │
+│  │     ┃ ┃   ┃ ┃    ┃      Candlestick Chart                 │  │
+│  │     ┃ ┃ ┃ ┃ ┃  ┃ ┃                                        │  │
+│  │     ┗━┛ ┗━┛ ┗━━┛ ┗━┛    ← Draw orders HERE               │  │
+│  │     ══════════════════  ← Entry line                      │  │
+│  │     ██████████████████  ← Stop zone                       │  │
+│  │     Price: $105.20      Volume: 1.2M                      │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                              ↓ SYNCED ↓                         │
+├─────────────────────────────────────────────────────────────────┤
+│  🏎 DRIVE VIEW (Where you FEEL)                                 │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │    ☁️         ☁️                    ☁️                      │  │
+│  │              ╱╲        Road = Accumulated Returns         │  │
+│  │        🚗💨 ╱  ╲                                           │  │
+│  │      ═════╱════╲════════                                  │  │
+│  │          ╱  🛡️  ╲___🏁    ← Orders appear as road elements │  │
+│  │    ~~~~~~~~~~~~~~~~~~~~~  (water/ground)                  │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│  [P&L: +5.2%] [Position: 100 AAPL] [Streak: 3🔥]                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why Two Views?**
+
+| View | Shows | Purpose |
+|------|-------|---------|
+| **Chart View** | Candlesticks (Price) | Traditional trading interface - what traders SEE |
+| **Drive View** | Accumulated Returns | Physical terrain - what traders FEEL |
+
+**The Learning Loop:**
+```
+1. SEE patterns     → Recognize candlestick formations on chart
+        ↓
+2. DRAW orders      → Place entry, stop loss, take profit
+        ↓
+3. WATCH sync       → See orders appear as road elements
+        ↓
+4. FEEL outcome     → Drive through returns, experience P&L
+        ↓
+5. BUILD intuition  → Connect "chart pattern" → "road difficulty"
+```
+
+---
+
+#### 📐 View Modes
+
+Players can toggle layout based on their focus:
+
+| Mode | Layout | Best For | Key |
+|------|--------|----------|-----|
+| **Split View** | 30% chart / 70% road | Active trading + driving | C |
+| **Chart Focus** | 70% chart / 30% road | Drawing complex setups | C+C |
+| **Drive Focus** | Mini chart overlay | Execution & driving | C+C+C |
+| **Full Immersion** | Road only | Advanced players | C+C+C+C |
+
+**Quick Toggle:** Press **C** to cycle through views
+
+**Picture-in-Picture:** Hold **Tab** to temporarily show full chart while driving
+
+---
+
+#### 🕯 Candlestick → Terrain Translation
+
+Each candle on the chart becomes a road segment:
+
+| Candle Pattern | Road Shape | Physics Effect |
+|----------------|------------|----------------|
+| 📗 Green candle | Uphill slope | Car gains momentum |
+| 📕 Red candle | Downhill slope | Car accelerates down |
+| Long upper wick | Bump → drop | Sudden deceleration |
+| Long lower wick | Dip → recovery | Bounce effect |
+| Doji (cross) | Rough/flat patch | Vibration, no momentum |
+| Marubozu (full body) | Smooth steep slope | Fast acceleration |
+| Hammer | Deep pothole → ramp | Hard bounce up |
+| Shooting star | Ramp → cliff edge | Momentum trap |
+
+**Visual Sync Indicator:**
+- Current candle highlighted on chart with pulsing border
+- Corresponding road segment glows beneath car
+- Timeline marker shows exact position on both views
+
+---
+
+#### 📊 What Each View Shows
+
+**Chart View (Top Panel):**
+```
+┌─────────────────────────────────────────┐
+│ AAPL 15m                    $105.20 ▲2% │  ← Symbol, timeframe, price
+│                                         │
+│     ┃   ┃ ┃                            │
+│   ┃ ┃   ┃ ┃ ┃    ┃                     │  ← Candlesticks
+│   ┃ ┃ ┃ ┃ ┃ ┃  ┃ ┃                     │
+│   ┗━┛ ┗━┛ ┗━┻━━┛ ┗━┛                    │
+│   ════════════════════  [ENTRY $100]    │  ← Your drawn orders
+│   ████████████████████  [SL $95]        │
+│           ████████████  [TP $115]       │
+│─────────────────────────────────────────│
+│ RSI: 58 | MACD: + | Vol: 1.2M          │  ← Indicators as numbers
+└─────────────────────────────────────────┘
+```
+
+**Drive View (Bottom Panel):**
+```
+┌─────────────────────────────────────────┐
+│   ☁️              ☀️            ☁️       │  ← Sky (market sentiment)
+│                                         │
+│                    🏁                    │  ← Take profit checkpoint
+│               ╱╲  ╱                      │
+│         🚗💨╱   ╲╱                       │  ← Car on returns road
+│    ══════╱═══════╲════════════          │
+│         ╱    🛡️    ╲________            │  ← Stop loss barrier
+│   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ │  ← Ground level (0% return)
+│                                         │
+│  [+5.2%] [Speed: 72] [Fuel: 80%]       │  ← Dashboard
+└─────────────────────────────────────────┘
+```
+
+---
+
+#### 🔄 Real-Time Synchronization
+
+**Chart → Road sync happens continuously:**
+
+| Chart Event | Road Event |
+|-------------|------------|
+| New candle forms | New road segment generates |
+| Price hits your entry line | Boost pad activates, position opens |
+| Price hits stop loss | Barrier catches car, position closes |
+| Indicator crosses threshold | Road sign appears (warning/opportunity) |
+| Volume spike | Road widens or obstacles appear |
+| Volatility increase | Road surface becomes rougher |
+
+**Order Sync Visualization:**
+```
+Chart View:                      Drive View:
+
+    ════════ Entry @ $100   →    ═══🚀═══ Boost pad at 0%
+    ████████ Stop @ $95     →    ═══🛡️═══ Barrier at -5%
+    ████████ Target @ $115  →    ═══🏁═══ Checkpoint at +15%
+```
+
+---
+
+#### 🎯 Why Accumulated Returns (Not Price) for Road?
+
+The road represents **your P&L journey**, not the asset's price history:
+
+| Aspect | Price-Based Road | Returns-Based Road ✓ |
+|--------|------------------|---------------------|
+| **Starting point** | Asset's current price | 0% (your entry) |
+| **Scale** | BTC: 40,000 vs Stock: $100 | Both: -50% to +100% |
+| **Meaning** | "Price went here" | "You gained/lost this much" |
+| **Drawdown feel** | Confusing across assets | Universal: -20% = same hill |
+| **Recovery** | Price retracing | +25% climb after -20% fall |
+
+**The Math Becomes Physical:**
+```
+You're down 50%:
+├── Road shows: Deep canyon at -50% level
+├── Recovery needed: +100% to break even
+└── Road shows: The climb back is TWICE as steep
+
+This teaches gain-loss asymmetry through PHYSICS, not numbers.
+```
+
+---
+
 ### 🖥 Screen Reading & Data Sources
 
 **TradingView Integration:**
