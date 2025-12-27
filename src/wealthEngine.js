@@ -48,8 +48,17 @@ class WealthEngine {
         // Risk tolerance: affects margin call threshold
         this.riskTolerance = config.riskTolerance || 0.5; // 50% drawdown triggers margin call
 
-        // Margin call threshold (drawdown % that triggers forced liquidation)
-        this.marginCallThreshold = 0.4; // 40% drawdown with high leverage = margin call
+        // === MARGIN CALL MECHANICS ===
+        // In real trading, leverage determines how much drawdown you can survive:
+        // - 1x leverage: No margin call from drawdown (you own everything)
+        // - 2x leverage: 50% drawdown = 100% equity loss = margin call
+        // - 3x leverage: 33% drawdown = 100% equity loss = margin call
+        // Formula: max_safe_drawdown = (1 / leverage) - buffer
+        // We add a 10% buffer so margin call triggers slightly before total wipeout
+        this.marginCallBuffer = 0.10; // 10% safety buffer before actual wipeout
+
+        // Liquidation proximity (0 = safe, 1 = margin call imminent)
+        this.liquidationProximity = 0;
 
         // Stability: affected by leverage and volatility
         // Lower stability = higher chance of crash on rough terrain
@@ -110,24 +119,40 @@ class WealthEngine {
     /**
      * Update stability based on financial position
      * Stability affects how likely the car is to flip/crash
+     *
+     * KEY INSIGHT: Leverage makes you MORE sensitive to drawdowns
+     * A 20% drawdown at 3x leverage is MUCH more destabilizing than at 1x
      */
     updateStability() {
         // Base stability
         let stability = 1.0;
 
-        // Leverage reduces stability (more leverage = less stable)
-        stability -= (this.leverage - 1) * 0.3;
+        // === LEVERAGE EFFECT ON STABILITY ===
+        // Higher leverage = less stable (borrowed money makes you nervous)
+        // But the REAL danger is leverage COMBINED with drawdown
+        const leveragePenalty = (this.leverage - 1) * 0.2;
+        stability -= leveragePenalty;
 
-        // Cash buffer increases stability
-        stability += this.cashBuffer * 0.4;
+        // === LIQUIDATION PROXIMITY EFFECT ===
+        // As you approach margin call, stability drops dramatically
+        // This creates the "walking on thin ice" feeling
+        const proximity = this.getLiquidationProximity();
+        const proximityPenalty = proximity * proximity * 0.6; // Exponential - gets scary fast
+        stability -= proximityPenalty;
 
-        // Drawdown reduces stability
+        // === DRAWDOWN + LEVERAGE INTERACTION ===
+        // Drawdown hurts more when leveraged (psychological pressure)
         const drawdown = this.getDrawdown() / 100;
-        stability -= drawdown * 0.5;
+        const leveragedDrawdownPenalty = drawdown * this.leverage * 0.3;
+        stability -= leveragedDrawdownPenalty;
+
+        // Cash buffer increases stability (safety cushion)
+        stability += this.cashBuffer * 0.5;
 
         // Stress reduces stability
-        stability -= (this.stress / this.maxStress) * 0.3;
+        stability -= (this.stress / this.maxStress) * 0.2;
 
+        // Clamp to valid range
         this.stability = Math.max(0.1, Math.min(1.5, stability));
         return this.stability;
     }
@@ -154,23 +179,65 @@ class WealthEngine {
     }
 
     /**
+     * Get the maximum drawdown before margin call based on leverage
+     * This is the core realistic leverage mechanic:
+     * - 1x leverage: 100% drawdown allowed (no borrowed money)
+     * - 2x leverage: 50% drawdown = wipeout
+     * - 3x leverage: 33% drawdown = wipeout
+     *
+     * @returns {number} Maximum safe drawdown as decimal (0-1)
+     */
+    getMaxSafeDrawdown() {
+        if (this.leverage <= 1) {
+            // No leverage = can survive any drawdown (just lose your own money)
+            return 0.95; // 95% - leave some buffer before bankruptcy
+        }
+
+        // With leverage: max_drawdown = 1 / leverage
+        // Example: 3x leverage means 33% drop wipes you out
+        const theoreticalMax = 1 / this.leverage;
+
+        // Apply buffer so we trigger margin call BEFORE total wipeout
+        // This gives player a chance to see it coming
+        const safeMax = theoreticalMax - this.marginCallBuffer;
+
+        return Math.max(0.05, safeMax); // At least 5% buffer
+    }
+
+    /**
+     * Get how close we are to margin call (0 = safe, 1 = margin call)
+     * This creates the "danger zone" feeling as you approach liquidation
+     */
+    getLiquidationProximity() {
+        const drawdown = this.getDrawdown() / 100;
+        const maxSafe = this.getMaxSafeDrawdown();
+
+        if (maxSafe <= 0) return 1;
+
+        // Calculate proximity: 0 = no drawdown, 1 = at margin call threshold
+        this.liquidationProximity = Math.min(1, drawdown / maxSafe);
+
+        return this.liquidationProximity;
+    }
+
+    /**
      * Check for margin call condition
-     * High leverage + high drawdown = forced liquidation
+     * REALISTIC: High leverage = small drawdown triggers margin call
+     *
+     * Example scenarios:
+     * - 1x leverage, 40% drawdown: SAFE (you just lost 40% of your own money)
+     * - 2x leverage, 40% drawdown: MARGIN CALL (40% > 50%-buffer = ~40%)
+     * - 3x leverage, 25% drawdown: MARGIN CALL (25% > 33%-buffer = ~23%)
      */
     checkMarginCall() {
         const drawdown = this.getDrawdown() / 100;
-        const leverageRisk = (this.leverage - 1) / (this.maxLeverage - 1);
+        const maxSafe = this.getMaxSafeDrawdown();
 
-        // Margin call triggered when:
-        // - High drawdown (> 30%) AND high leverage (> 1.5x)
-        // - Or extreme drawdown (> 50%) at any leverage
-        if (drawdown > 0.5) {
-            return true;
-        }
-        if (drawdown > 0.3 && this.leverage > 1.5) {
-            return true;
-        }
-        if (drawdown > this.marginCallThreshold && leverageRisk > 0.3) {
+        // Update liquidation proximity for HUD display
+        this.getLiquidationProximity();
+
+        // Margin call if drawdown exceeds safe threshold for our leverage level
+        if (drawdown >= maxSafe) {
             return true;
         }
 
@@ -238,10 +305,11 @@ class WealthEngine {
                     lesson: 'When you lose control, there\'s no recovery.'
                 };
             case 'margin_call':
+                const maxDD = (this.getMaxSafeDrawdown() * 100).toFixed(0);
                 return {
                     title: 'MARGIN CALL!',
-                    subtitle: 'Your broker forced liquidation.',
-                    lesson: 'Borrowed money comes with strings attached.'
+                    subtitle: 'At ' + this.leverage.toFixed(1) + 'x leverage, ' + maxDD + '% drawdown = liquidation.',
+                    lesson: 'Higher leverage = smaller margin for error. The market doesn\'t care about your leverage.'
                 };
             case 'crash_stress':
                 return {
@@ -516,7 +584,10 @@ class WealthEngine {
             // Water level stats
             waterLevel: this.waterLevel,
             realReturn: this.getRealReturn(),
-            aboveWater: this.waterMargin > 0
+            aboveWater: this.waterMargin > 0,
+            // Margin call stats
+            maxSafeDrawdown: this.getMaxSafeDrawdown() * 100,
+            liquidationProximity: this.liquidationProximity
         };
     }
 
@@ -541,6 +612,7 @@ class WealthEngine {
         this.cashBuffer = config.cashBuffer || 0.2;
         this.stability = 1.0;
         this.stress = 0;
+        this.liquidationProximity = 0;
 
         // Reset water level
         this.waterLevel = this.startingWealth;

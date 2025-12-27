@@ -38,6 +38,10 @@ class MarketTerrainGenerator {
         this.cumulativeReturns = [];
         this.baselineHeight = 0;  // Starting Y position (represents $10K)
 
+        // Leverage amplification (set from wealthEngine)
+        // Higher leverage = terrain appears steeper (amplified returns)
+        this.leverageMultiplier = 1.0;
+
         // Terrain generation settings
         this.settings = {
             // Height scaling: how many pixels per 1% cumulative return
@@ -115,6 +119,16 @@ class MarketTerrainGenerator {
     }
 
     /**
+     * Set leverage multiplier for terrain amplification
+     * Higher leverage = steeper hills (you FEEL the amplified returns)
+     *
+     * @param {number} leverage - Current leverage level (1.0 = normal, 2.0 = 2x, etc.)
+     */
+    setLeverage(leverage) {
+        this.leverageMultiplier = leverage;
+    }
+
+    /**
      * Check if more market data is available
      */
     hasMoreData() {
@@ -160,17 +174,30 @@ class MarketTerrainGenerator {
      * Convert cumulative return percentage to Y height
      * Higher returns = LOWER Y (because screen Y increases downward)
      *
+     * LEVERAGE EFFECT: Returns are amplified by leverage multiplier
+     * This makes the terrain FEEL like leveraged returns:
+     * - 2x leverage: hills are 2x steeper
+     * - 3x leverage: hills are 3x steeper
+     * The car literally experiences amplified market moves!
+     *
      * @param {number} cumulativeReturnPercent - Total return from start (e.g., +50 = +50%)
      * @returns {number} Y offset from baseline (negative = higher on screen)
      */
     cumulativeReturnToHeight(cumulativeReturnPercent) {
-        // Invert: positive return = go UP = negative Y delta
-        const rawHeight = -cumulativeReturnPercent * this.settings.heightPerPercent;
+        // Apply leverage amplification to returns
+        // This makes the terrain reflect YOUR leveraged experience, not just the market
+        const leveragedReturn = cumulativeReturnPercent * this.leverageMultiplier;
 
-        // Apply bounds
+        // Invert: positive return = go UP = negative Y delta
+        const rawHeight = -leveragedReturn * this.settings.heightPerPercent;
+
+        // Apply bounds (but scale bounds with leverage too, up to a point)
+        const leveragedMaxAbove = this.settings.maxHeightAboveBaseline * Math.min(2, this.leverageMultiplier);
+        const leveragedMaxBelow = this.settings.maxHeightBelowBaseline * Math.min(2, this.leverageMultiplier);
+
         const bounded = Math.max(
-            -this.settings.maxHeightAboveBaseline,
-            Math.min(this.settings.maxHeightBelowBaseline, rawHeight)
+            -leveragedMaxAbove,
+            Math.min(leveragedMaxBelow, rawHeight)
         );
 
         return bounded;

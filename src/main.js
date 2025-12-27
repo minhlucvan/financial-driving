@@ -555,7 +555,12 @@ function createWealthHUD(scene) {
         stressBar: null,
         stressFill: null,
         // Physics modifiers display
-        physicsText: null
+        physicsText: null,
+        // Liquidation warning
+        liquidationBar: null,
+        liquidationFill: null,
+        liquidationText: null,
+        liquidationWarning: null
     };
 
     const hudY = 85;
@@ -656,16 +661,44 @@ function createWealthHUD(scene) {
         color: '#666666'
     }).setScrollFactor(0).setDepth(1001);
 
-    // Goal label - reflects the climbing metaphor
-    scene.add.text(16, hudY + 144, 'GOAL: Climb to $1M! Keep rising above the water.', {
+    // === LIQUIDATION BAR (shows how close to margin call) ===
+    // Background
+    wealthHUD.liquidationBar = scene.add.graphics();
+    wealthHUD.liquidationBar.setScrollFactor(0).setDepth(1001);
+    wealthHUD.liquidationBar.fillStyle(0x222222, 0.8);
+    wealthHUD.liquidationBar.fillRoundedRect(16, hudY + 148, 180, 10, 3);
+
+    // Fill (shows proximity to margin call)
+    wealthHUD.liquidationFill = scene.add.graphics();
+    wealthHUD.liquidationFill.setScrollFactor(0).setDepth(1002);
+
+    // Label
+    wealthHUD.liquidationText = scene.add.text(200, hudY + 145, 'Safe', {
         fontFamily: 'monospace',
         fontSize: '10px',
-        color: '#888888',
+        color: '#66ff66'
+    }).setScrollFactor(0).setDepth(1001);
+
+    // Liquidation warning (hidden by default)
+    wealthHUD.liquidationWarning = scene.add.text(screen_width / 2, hudY + 60, 'MARGIN CALL IMMINENT!', {
+        fontFamily: 'monospace',
+        fontSize: '20px',
+        fontStyle: 'bold',
+        color: '#ff4444',
+        backgroundColor: '#000000cc',
+        padding: { x: 16, y: 6 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(1100).setVisible(false);
+
+    // Goal label - reflects the climbing metaphor
+    scene.add.text(16, hudY + 164, 'GOAL: Climb to $1M! Stay above water & avoid margin call!', {
+        fontFamily: 'monospace',
+        fontSize: '9px',
+        color: '#666666',
         padding: { x: 6, y: 2 }
     }).setScrollFactor(0).setDepth(1001);
 
     // Physics modifiers display (shows how financial position affects car)
-    wealthHUD.physicsText = scene.add.text(16, hudY + 162, 'PHYSICS: Torque 1.0x | Brake 1.0x | Grip 100%', {
+    wealthHUD.physicsText = scene.add.text(16, hudY + 180, 'PHYSICS: Torque 1.0x | Brake 1.0x | Grip 100%', {
         fontFamily: 'monospace',
         fontSize: '11px',
         color: '#66aaff',
@@ -804,6 +837,70 @@ function updateWealthHUD() {
         wealthHUD.drowningWarning.setText('DROWNING! ' + timeLeft + 's');
     } else {
         wealthHUD.drowningWarning.setVisible(false);
+    }
+
+    // === UPDATE LIQUIDATION BAR ===
+    if (wealthHUD.liquidationFill && wealthEngine) {
+        const proximity = wealthEngine.getLiquidationProximity();
+        const maxSafeDD = wealthEngine.getMaxSafeDrawdown() * 100;
+        const currentDD = wealthEngine.getDrawdown();
+        const hudY = 85;
+
+        // Fill width based on proximity (0 = empty, 1 = full = margin call)
+        const barWidth = 180;
+        const fillWidth = Math.max(0, proximity * barWidth);
+
+        wealthHUD.liquidationFill.clear();
+
+        // Color based on danger level
+        let fillColor = 0x44ff44; // Green - safe
+        if (proximity > 0.8) {
+            fillColor = 0xff2222; // Red - imminent danger
+        } else if (proximity > 0.6) {
+            fillColor = 0xff6622; // Orange - danger
+        } else if (proximity > 0.4) {
+            fillColor = 0xffaa22; // Yellow - caution
+        } else if (proximity > 0.2) {
+            fillColor = 0x88ff44; // Light green - mild risk
+        }
+
+        wealthHUD.liquidationFill.fillStyle(fillColor, 1);
+        wealthHUD.liquidationFill.fillRoundedRect(16, hudY + 148, fillWidth, 10, 3);
+
+        // Update text
+        const ddStr = currentDD.toFixed(1);
+        const maxStr = maxSafeDD.toFixed(0);
+        let statusText = 'DD: ' + ddStr + '% / ' + maxStr + '%';
+
+        if (proximity > 0.8) {
+            statusText = 'DANGER! ' + ddStr + '%/' + maxStr + '%';
+            wealthHUD.liquidationText.setColor('#ff4444');
+        } else if (proximity > 0.5) {
+            statusText = 'RISK: ' + ddStr + '%/' + maxStr + '%';
+            wealthHUD.liquidationText.setColor('#ffaa44');
+        } else if (proximity > 0.2) {
+            statusText = ddStr + '% / ' + maxStr + '% max';
+            wealthHUD.liquidationText.setColor('#ffff66');
+        } else {
+            statusText = 'Safe (' + maxStr + '% max DD)';
+            wealthHUD.liquidationText.setColor('#66ff66');
+        }
+
+        wealthHUD.liquidationText.setText(statusText);
+
+        // Show/hide margin call warning
+        if (proximity > 0.7 && wealthEngine.leverage > 1) {
+            wealthHUD.liquidationWarning.setVisible(true);
+            // Flashing effect
+            const flash = Math.sin(Date.now() / 80) > 0;
+            wealthHUD.liquidationWarning.setAlpha(flash ? 1 : 0.6);
+
+            // Update warning text with specifics
+            const remaining = (maxSafeDD - currentDD).toFixed(1);
+            wealthHUD.liquidationWarning.setText('MARGIN CALL in ' + remaining + '% more DD!');
+        } else {
+            wealthHUD.liquidationWarning.setVisible(false);
+        }
     }
 
     // === UPDATE PHYSICS MODIFIERS DISPLAY ===
@@ -1142,6 +1239,11 @@ function update()
 {
     // Only process game logic if playing
     if (gameState === 'playing') {
+        // Sync leverage with terrain generator (amplifies terrain steepness)
+        if (wealthEngine && marketTerrainGenerator) {
+            marketTerrainGenerator.setLeverage(wealthEngine.leverage);
+        }
+
         // Apply financial physics BEFORE processing keys
         // This updates torque/brake/traction multipliers
         applyFinancialPhysics(this);
