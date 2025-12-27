@@ -9,3 +9,4 @@ export * from './styles';
 export * from './renderer';
 export * from './svg-car';
 export * from './svg-loader';
+export * from './chart';
