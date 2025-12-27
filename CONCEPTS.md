@@ -1,216 +1,220 @@
+# 🎮 Financial Drive
 
-🎮 Game Concept: Financial Drive
+> You're not picking stocks. You're driving through markets.
 
-Genre
-Simulation · Strategy · Skill-based · Educational (but not boring)
+**Genre:** Simulation · Strategy · Educational
 
-Core Fantasy
+---
 
-You are not “picking stocks”.
-You are driving a financial machine through market terrain.
+## 🎯 Core Concept
 
-⸻
+**One Asset. One Car. One Road.**
 
-🧠 Core Mental Model (Locked In)
+You control a car driving through market history. The road is generated from real price data of a single asset (e.g., S&P 500, Bitcoin, Gold).
 
-Financial Concept	Game Metaphor
-Assets	🚗 Engine (power)
-Cash	🛑 Brake (control, survival)
-Debt	🚀 Accelerator (speed, risk)
-Volatility	🌪 Road conditions
-Drawdown	⛰ Steep downhill
-Liquidity crisis	🚧 Roadblocks
-Margin call	💥 Engine failure
+Your job: **Survive and grow** by reading the road conditions and adjusting your position.
 
-This is not cosmetic — physics is enforced.
+---
 
-⸻
+## 🚗 The Car = Your Position
 
-🗺 World & Visual Design
+| Car Part | Financial Meaning | What It Does |
+|----------|-------------------|--------------|
+| **Gas Pedal** | Position Size (0-100%) | More gas = more exposure = faster gains/losses |
+| **Brake** | Cash Reserve | Reduces speed, protects from crashes |
+| **Speedometer** | Current Returns | Shows your P&L in real-time |
+| **Fuel Tank** | Total Capital | Your money - empty = game over |
 
-The Road = Market History
-	•	The road is generated from real daily price data
-	•	Each candle → road segment
-	•	Slope = return
-	•	Curvature = volatility
-	•	Surface = liquidity & regime
+### Simple Controls
+- **Accelerate** → Increase position (buy more)
+- **Brake** → Decrease position (sell some)
+- **Coast** → Hold current position
 
-Bull market → smooth uphill highway
-Chop → winding mountain road
-Crash → steep downhill + fog + potholes
+---
 
-You cannot see future road. Fog-of-war beyond current candle.
+## 🛣️ The Road = Price Action
 
-⸻
+The road is generated from **real historical data**:
 
-🚗 The Car = Your Financial Position
+| Price Action | Road Shape |
+|--------------|------------|
+| Price goes up | Road goes uphill ↗️ |
+| Price goes down | Road goes downhill ↘️ |
+| Sideways/choppy | Winding road 〰️ |
+| Crash | Steep cliff ⬇️ |
 
-Car Stats (updated every “day”)
+**You cannot see the future.** Fog limits visibility to current conditions only.
 
-Engine Power = Asset Allocation × Market Trend
-Brake Strength = Cash %
-Acceleration Boost = Debt Ratio
-Traction = Diversification + Volatility
-Durability = Drawdown tolerance
+---
 
-Visual Feedback
-	•	Engine overheating = over-leveraged
-	•	Brake glow = cash buffer active
-	•	Turbo flame = debt acceleration
-	•	Skidding = volatility mismatch
-	•	Smoke / sparks = margin stress
+## 📊 Three Indicator Systems
 
-⸻
+The dashboard shows 3 key indicators that affect road conditions:
 
-🎯 Player Actions (What You Can Actually Do)
+### 1️⃣ TREND Indicator (Direction)
 
-Allowed (Realistic)
-	•	Buy / Sell assets (rebalance engine)
-	•	Increase / Decrease cash (brake tuning)
-	•	Add / Reduce debt (accelerator)
-	•	Pause at checkpoints (rebalance only)
-	•	Choose strategy presets
+**What it measures:** Where is the market heading?
 
-Not Allowed (Critical)
+| Signal | Visual | Road Effect | Suggested Action |
+|--------|--------|-------------|------------------|
+| **Strong Uptrend** | 🟢 Green arrow up | Smooth uphill highway | Accelerate |
+| **Weak Uptrend** | 🟡 Yellow arrow up | Gentle slope | Maintain speed |
+| **Neutral** | ⚪ Flat line | Flat road | Coast |
+| **Weak Downtrend** | 🟡 Yellow arrow down | Gentle decline | Light brake |
+| **Strong Downtrend** | 🔴 Red arrow down | Steep downhill | Heavy brake |
 
-❌ See future prices
-❌ Undo crashes
-❌ Infinite leverage
-❌ Instant reactions (latency exists)
+**Based on:** Moving Average direction (price vs 20-day MA)
 
-⸻
+---
 
-⏱ Time System
-	•	1 tick = 1 market day
-	•	Player can:
-	•	Run real-time
-	•	Fast-forward
-	•	Pause only at candle close
+### 2️⃣ VOLATILITY Indicator (Danger)
 
-This forces discipline, not twitch trading.
+**What it measures:** How bumpy is the ride?
 
-⸻
+| Signal | Visual | Road Effect | Suggested Action |
+|--------|--------|-------------|------------------|
+| **Low Volatility** | 🟢 Calm | Smooth pavement | Safe to accelerate |
+| **Normal** | 🟡 Wavy | Normal road | Standard driving |
+| **High Volatility** | 🔴 Shaking | Rocky, unpredictable | Reduce speed |
+| **Extreme** | 💀 Storm | Dangerous terrain | Brake hard |
 
-🧩 Market Physics (This Is the Soul)
+**Based on:** ATR (Average True Range) or daily price swings
 
-Road Conditions are driven by indicators
+**Key Rule:** High volatility + High speed = Easy crash
 
-Indicator	Road Effect
-ATR	Road roughness
-VIX	Fog + wind
-MA slope	Uphill / downhill
-RSI	Slippery edges
-Volume	Road width
-Correlation	Multi-lane instability
+---
 
-You feel indicators, not read them.
+### 3️⃣ VALUE Indicator (Fundamentals)
 
-⸻
+**What it measures:** Is the asset cheap or expensive?
 
-🛠 Strategy Archetypes (Player Styles)
+| Signal | Visual | Road Effect | Suggested Action |
+|--------|--------|-------------|------------------|
+| **Undervalued** | 🟢 "$" cheap tag | Road likely to rise | Good entry point |
+| **Fair Value** | 🟡 "=" balanced | Normal conditions | Hold position |
+| **Overvalued** | 🔴 "$$" expensive | Risk of drop ahead | Consider reducing |
+| **Extreme Bubble** | 💀 "🎈" bubble | Cliff likely ahead | Defensive mode |
 
-Each style feels different to drive.
+**Based on:** P/E Ratio, Price-to-MA ratio, or RSI extremes
 
-🐢 Conservative Driver
-	•	Big brakes
-	•	Small engine
-	•	Rare crashes
-	•	Low top speed
+---
 
-🐎 Trend Follower
-	•	Strong engine
-	•	Moderate brakes
-	•	Loves highways
-	•	Hates sharp turns
+## 🎮 Dashboard Display
 
-🧨 Aggressive Leverage
-	•	Massive acceleration
-	•	Weak brakes
-	•	Spectacular wins
-	•	Spectacular crashes
+```
+┌─────────────────────────────────────────────┐
+│  💰 Capital: $10,450  |  📈 Returns: +4.5%  │
+├─────────────────────────────────────────────┤
+│                                             │
+│  TREND      [🟢🟢🟢⚪⚪]  Strong Up         │
+│  VOLATILITY [🟢🟢⚪⚪⚪]  Low               │
+│  VALUE      [🟡🟡🟡⚪⚪]  Fair              │
+│                                             │
+│  Position: ████████░░ 80%                   │
+│  Speed:    ▓▓▓▓▓▓░░░░ 60 km/h              │
+│                                             │
+└─────────────────────────────────────────────┘
+```
 
-🧠 Adaptive Macro
-	•	Adjustable everything
-	•	Hard to master
-	•	Highest Sharpe potential
+---
 
-⸻
+## 🏆 Scoring System
 
-🧮 Scoring System (No Fake Gamification)
+### Primary Score: Risk-Adjusted Returns
 
-Score = Real investing metrics, not points.
+```
+FINAL SCORE = Total Return × Safety Multiplier
+```
 
-Metric	Meaning
-CAGR	Distance covered
-Sharpe	Smoothness of drive
-Max Drawdown	Crash severity
-Time to Recovery	Pit stop efficiency
-Risk of Ruin	Career survival
+| Metric | What It Measures | How It's Shown |
+|--------|------------------|----------------|
+| **Total Return** | % gain/loss on capital | Distance traveled |
+| **Max Drawdown** | Worst crash during run | Damage taken |
+| **Volatility** | Bumpiness of your returns | Ride smoothness |
+| **Safety Multiplier** | Reward for not crashing | Bonus points |
 
-Leaderboard is multi-dimensional:
-	•	“Fastest with Sharpe > 1”
-	•	“Longest survival”
-	•	“Best crash recovery”
+### Safety Multiplier Table
 
-⸻
+| Max Drawdown | Multiplier | Rating |
+|--------------|------------|--------|
+| < 5% | ×1.5 | ⭐⭐⭐ Smooth Operator |
+| 5-10% | ×1.2 | ⭐⭐ Careful Driver |
+| 10-20% | ×1.0 | ⭐ Normal |
+| 20-30% | ×0.8 | ⚠️ Reckless |
+| > 30% | ×0.5 | 💀 Crash Penalty |
 
-🏁 Game Modes
+### Example Scoring
 
-1️⃣ Career Mode
-	•	Start with small engine
-	•	Unlock assets, tools, leverage
-	•	Survive multiple cycles
+```
+Player A: +50% return, 25% max drawdown
+Score = 50 × 0.8 = 40 points
 
-2️⃣ Scenario Mode
-	•	Dotcom bubble
-	•	2008 crash
-	•	COVID
-	•	Crypto winter
+Player B: +30% return, 8% max drawdown
+Score = 30 × 1.2 = 36 points
 
-3️⃣ Sandbox
-	•	Free experiment
-	•	No scoring pressure
+Player A wins but Player B drove better!
+```
 
-4️⃣ Ghost Drive
-	•	Race against your past self
-	•	See where you crashed before
+---
 
-⸻
+## 🎯 Win Conditions
 
-🧠 Learning Without Teaching
+| Mode | Goal | Win When |
+|------|------|----------|
+| **Survival** | Don't go broke | Finish the period with capital > 0 |
+| **Target** | Hit return goal | Reach +X% return |
+| **Challenge** | Beat benchmark | Outperform buy-and-hold |
+| **Efficiency** | Best risk-adjusted | Highest score (return × safety) |
 
-The player learns:
-	•	Why leverage kills in volatility
-	•	Why cash feels “slow but safe”
-	•	Why trends matter more than prediction
-	•	Why survival beats brilliance
+---
 
-No tutorials. Only consequences.
+## 📈 Indicator Combinations (Strategy Hints)
 
-⸻
+| Trend | Volatility | Value | Road Condition | Strategy |
+|-------|------------|-------|----------------|----------|
+| 🟢 Up | 🟢 Low | 🟢 Cheap | Highway | Full speed! |
+| 🟢 Up | 🔴 High | 🟡 Fair | Bumpy uphill | Moderate speed |
+| 🔴 Down | 🟢 Low | 🟢 Cheap | Smooth decline | Wait, prepare to buy |
+| 🔴 Down | 🔴 High | 🔴 Expensive | Dangerous cliff | BRAKE! |
+| 🟡 Neutral | 🟡 Normal | 🟡 Fair | Normal road | Coast, save fuel |
 
-🧩 Why This Is Powerful (Design Insight)
+---
 
-Most investing games fail because:
-	•	They reward prediction
-	•	They hide risk
-	•	They reset pain
+## 🎮 Game Flow
 
-Your game:
-	•	Rewards positioning
-	•	Makes risk physical
-	•	Makes mistakes memorable
+```
+1. Choose Asset (S&P 500, Bitcoin, Gold, etc.)
+2. Choose Time Period (2008 crash, 2020 COVID, etc.)
+3. Start with $10,000 and 0% position
+4. Drive through history:
+   - Read indicators
+   - Adjust position
+   - Survive the road
+5. Final score = Return × Safety Multiplier
+```
 
-This builds market reflex, not knowledge.
+---
 
-⸻
+## 🧠 What Players Learn
 
-🚀 This Can Become a Platform
+By playing, you naturally understand:
 
-Future extensions:
-	•	Multiplayer macro regimes
-	•	AI co-driver strategies
-	•	Real-time market mode
-	•	Personal portfolio replay
+| Experience | Investing Lesson |
+|------------|------------------|
+| Crash after ignoring red signals | Indicators matter |
+| Slow gains with green signals | Trends are your friend |
+| Wipeout from full speed + high volatility | Position sizing saves you |
+| Missing rally while braking | Cash has opportunity cost |
+| Surviving crash others didn't | Risk management wins long-term |
 
-This is Miro-meets-TradingView-meets-F1, but 
+**No tutorials. Only consequences.**
+
+---
+
+## 🚀 Future Expansions
+
+Once core works:
+- Multiple assets (portfolio mode)
+- More indicators (momentum, sentiment)
+- Multiplayer races
+- Real-time market mode 
