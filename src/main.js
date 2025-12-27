@@ -222,12 +222,6 @@ function create ()
     // Initialize market data and terrain generator
     initializeMarketTerrain(this);
 
-    // Toggle terrain mode with 'M' key
-    var MKey = this.input.keyboard.addKey('M');
-    MKey.on('down', function () {
-        toggleTerrainMode(this);
-    }, this);
-
     // Cycle market datasets with 'N' key
     var NKey = this.input.keyboard.addKey('N');
     NKey.on('down', function () {
@@ -263,27 +257,11 @@ function initializeMarketTerrain(scene) {
     marketDataLoader.loadDataset(scene, 'crash_2008');
     marketDataLoader.loadDataset(scene, 'covid_2020');
 
-    // Set default dataset and activate market mode
+    // Set default dataset and activate market terrain
     marketDataLoader.setActiveDataset(currentMarketDataKey);
     marketTerrainGenerator.setMarketData(marketDataLoader.datasets[currentMarketDataKey]);
 
-    // Start in market mode by default
-    NoiseGenerator.setMode('market');
-
     console.log('Market terrain initialized with dataset:', currentMarketDataKey);
-}
-
-/**
- * Toggle between procedural and market terrain modes
- */
-function toggleTerrainMode(scene) {
-    if (NoiseGenerator.mode === 'procedural') {
-        NoiseGenerator.setMode('market');
-        updateHUDMode('MARKET: ' + currentMarketDataKey.toUpperCase());
-    } else {
-        NoiseGenerator.setMode('procedural');
-        updateHUDMode('PROCEDURAL');
-    }
 }
 
 /**
@@ -301,11 +279,7 @@ function cycleMarketDataset(scene) {
     marketTerrainGenerator.setMarketData(marketDataLoader.datasets[currentMarketDataKey]);
     marketTerrainGenerator.reset();
 
-    // Ensure we're in market mode
-    NoiseGenerator.setMode('market');
-
-    updateHUDMode('MARKET: ' + currentMarketDataKey.toUpperCase());
-    updateHUDDataset(marketDataLoader.getDatasetInfo(currentMarketDataKey));
+    updateHUDDataset(currentMarketDataKey, marketDataLoader.getDatasetInfo(currentMarketDataKey));
 
     console.log('Switched to market dataset:', currentMarketDataKey);
 }
@@ -316,15 +290,15 @@ function cycleMarketDataset(scene) {
 function createMarketHUD(scene) {
     // Create HUD container (fixed to camera)
     marketHUD = {
-        mode: null,
         dataset: null,
         regime: null,
-        price: null,
         container: null
     };
 
-    // Mode indicator
-    marketHUD.mode = scene.add.text(16, 16, 'MARKET: ' + currentMarketDataKey.toUpperCase(), {
+    // Dataset name indicator
+    const datasetInfo = marketDataLoader.getDatasetInfo(currentMarketDataKey);
+    const infoText = datasetInfo ? datasetInfo.name + ' (' + datasetInfo.symbol + ')' : 'Loading...';
+    marketHUD.dataset = scene.add.text(16, 16, infoText, {
         fontFamily: 'monospace',
         fontSize: '18px',
         color: '#00ff00',
@@ -332,19 +306,8 @@ function createMarketHUD(scene) {
         padding: { x: 8, y: 4 }
     }).setScrollFactor(0).setDepth(1000);
 
-    // Dataset info
-    const datasetInfo = marketDataLoader.getDatasetInfo(currentMarketDataKey);
-    const infoText = datasetInfo ? datasetInfo.name : 'Loading...';
-    marketHUD.dataset = scene.add.text(16, 48, infoText, {
-        fontFamily: 'monospace',
-        fontSize: '14px',
-        color: '#ffffff',
-        backgroundColor: '#000000aa',
-        padding: { x: 8, y: 4 }
-    }).setScrollFactor(0).setDepth(1000);
-
     // Market regime indicator
-    marketHUD.regime = scene.add.text(16, 80, 'Regime: --', {
+    marketHUD.regime = scene.add.text(16, 52, 'Regime: --', {
         fontFamily: 'monospace',
         fontSize: '14px',
         color: '#ffff00',
@@ -353,7 +316,7 @@ function createMarketHUD(scene) {
     }).setScrollFactor(0).setDepth(1000);
 
     // Controls hint
-    scene.add.text(16, screen_height - 40, 'M: Toggle Mode | N: Next Dataset | F: Fullscreen', {
+    scene.add.text(16, screen_height - 40, 'N: Next Dataset | F: Fullscreen | Arrows: Drive', {
         fontFamily: 'monospace',
         fontSize: '12px',
         color: '#aaaaaa',
@@ -363,25 +326,9 @@ function createMarketHUD(scene) {
 }
 
 /**
- * Update HUD mode display
- */
-function updateHUDMode(modeText) {
-    if (marketHUD && marketHUD.mode) {
-        marketHUD.mode.setText(modeText);
-
-        // Color based on mode
-        if (modeText.includes('MARKET')) {
-            marketHUD.mode.setColor('#00ff00');
-        } else {
-            marketHUD.mode.setColor('#ffaa00');
-        }
-    }
-}
-
-/**
  * Update HUD dataset info
  */
-function updateHUDDataset(datasetInfo) {
+function updateHUDDataset(datasetKey, datasetInfo) {
     if (marketHUD && marketHUD.dataset && datasetInfo) {
         marketHUD.dataset.setText(datasetInfo.name + ' (' + datasetInfo.symbol + ')');
     }
@@ -391,7 +338,7 @@ function updateHUDDataset(datasetInfo) {
  * Update HUD with current market regime
  */
 function updateHUDRegime() {
-    if (!marketHUD || !marketHUD.regime || !NoiseGenerator.isMarketMode()) {
+    if (!marketHUD || !marketHUD.regime || !NoiseGenerator.isReady()) {
         return;
     }
 

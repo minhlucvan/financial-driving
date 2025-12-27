@@ -1,148 +1,52 @@
 /**
- * genrate curve which will be used for generation of terrain.
+ * NoiseGenerator - Generates terrain curves from market data
  *
- * Supports two modes:
- * 1. Procedural (default) - Random terrain using cosine interpolation
- * 2. Market Data - Terrain generated from financial price data
+ * This generator uses financial market data to create terrain:
+ * - Slope = daily return (positive = uphill, negative = downhill)
+ * - Curvature = volatility
+ * - Surface conditions based on market regime
  */
-
-function interpolate(pa, pb, px)
-{
-    var ft = px * Math.PI,
-    ft = (1 - Math.cos(ft)) * 0.5;
-    return pa * (1 - ft) + pb * ft;
-}
-
-
 
 class NoiseGenerator
 {
     static curve_debug = false;
 
-    // Terrain generation mode: 'procedural' or 'market'
-    static mode = 'procedural';
-
     /**
-     * Set terrain generation mode
-     * @param {string} newMode - 'procedural' or 'market'
+     * Check if market terrain generator is ready
      */
-    static setMode(newMode) {
-        if (newMode === 'procedural' || newMode === 'market') {
-            NoiseGenerator.mode = newMode;
-            console.log('Terrain mode set to:', newMode);
-        } else {
-            console.warn('Invalid terrain mode:', newMode);
-        }
-    }
-
-    /**
-     * Check if using market data mode
-     */
-    static isMarketMode() {
-        return NoiseGenerator.mode === 'market' &&
-               typeof marketTerrainGenerator !== 'undefined' &&
+    static isReady() {
+        return typeof marketTerrainGenerator !== 'undefined' &&
                marketTerrainGenerator.isActive;
     }
 
     /**
-     *
-     * @returns selectes a generator function and returns it
+     * Get the curve generator function
+     * @returns {Function} Market terrain generator function
      */
     static getCurve()
     {
-        // If market mode is active and we have data, use market generator
-        if (NoiseGenerator.isMarketMode()) {
+        if (NoiseGenerator.isReady()) {
             return (param, tileSize) => marketTerrainGenerator.generateCurve(param, tileSize);
         }
 
-        // Default: procedural generation
-        return NoiseGenerator.cosineInterpolation;
-        // return NoiseGenerator.sinCurve;
+        // Fallback: flat terrain if market data not ready
+        console.warn('Market terrain not ready, using flat terrain');
+        return NoiseGenerator.flatCurve;
     }
 
-    static sinCurve(param, tileSize)
+    /**
+     * Fallback flat curve when market data is not available
+     */
+    static flatCurve(param, tileSize)
     {
-        let a = 0,
-            x = 0,
-            height = [],
-            t = 0.025;
-        
-        while(x <= param.w) //x < param.w
-        {
-            
-            a = srand.frac()*20*Math.sin(x) + 150*(Math.sin(3.14*t*x/tileSize) + Math.sin(2*t*x/tileSize) + Math.sin(10*t*x/tileSize));
-            height.push(a);
-            if(NoiseGenerator.curve_debug)
-            {    
-                graphics.fillStyle(0x0f000, 1);
-                graphics.fillCircle(param.x + x, param.h/2 + a, 2);
-            }
-            x += tileSize;
+        const height = [];
+        const tilesNeeded = Math.ceil(param.w / tileSize);
+        const baseHeight = param.cummCoord || 0;
+
+        for (let i = 0; i < tilesNeeded; i++) {
+            height.push(baseHeight);
         }
-        //console.log(height);
+
         return height;
     }
-    
-    /**
-     * 
-     * @param {Object} param parameter for curve genration 
-     * @returns array with y coordinate values of curve seprated by tilesize
-     */
-    static cosineInterpolation(param, tileSize)
-    {
-        let a0 = srand.frac(),
-            b0 = 0,
-            wl0 = param.wl,
-
-            a1 = srand.frac(),
-            b1 = srand.frac(),
-            wl1 = param.wl*2,
-            step1 = 1,
-
-            x = param.x,
-            height = []; //stores y for each point , use this to select tile
-
-        while(true) //x < param.w
-        {
-            if(NoiseGenerator.curve_debug)
-            {    
-                graphics.fillStyle(0x0f000, 1);
-                graphics.fillCircle(x, param.h + param.amp*a0, 8);
-            }
-
-            let istep = 1/(wl0/tileSize);
-            for(let i=0; i<=1; i += istep)
-            {
-                let ip = interpolate(a0, b0, i);
-                //ip += 1.5*interpolate(a1, b1, i/10 + step1/10);
-
-                if(height.length*tileSize > param.w)
-                {
-                    return height;
-                }
-                height.push(param.amp*ip);
-                if(NoiseGenerator.curve_debug)
-                {
-                    graphics.fillStyle(0x4d76ff, 1);
-                    graphics.fillCircle(x + i*wl0,  100 + param.amp*ip, 8);
-                }
-                
-            }
-
-            if(step1 > 10)
-            {
-                a1 = b1;
-                b1 = srand.frac();
-                step1 = 0;
-            }
-            
-            step1 += 1;
-
-            x += wl0;
-            a0 = b0;
-            b0 = srand.frac();
-        }
-        
-    }
- 
 }
