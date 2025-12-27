@@ -26,6 +26,48 @@ This is not cosmetic — physics is enforced.
 
 ⸻
 
+📐 Gain–Loss Asymmetry (Two Core Laws)
+
+The game embodies the fundamental truth about losses:
+
+**1) Mathematical Law (Compounding Reality)**
+
+A loss of L% requires a gain of L/(1-L)% to recover.
+
+| Loss | Recovery Needed |
+|------|-----------------|
+| -10% | +11.1% |
+| -20% | +25% |
+| -50% | +100% |
+| -90% | +900% |
+
+**Losses increase recovery non-linearly.**
+
+In-game: The HUD shows "DD: -30% → Need +42.86% to recover"
+
+**2) Psychological Law (Prospect Theory / Loss Aversion)**
+
+Empirically, losses are weighted ~2.25× stronger than gains in human utility.
+
+v(x) = x^α for gains, -λ|x|^α for losses, where λ ≈ 2.25
+
+This means a loss of $100 feels roughly as painful as a gain of $225 feels pleasurable.
+
+In-game:
+- Stress accumulates 2.25× faster on losses
+- Stress reduces slower on gains
+- The car FEELS heavier when recovering from drawdown
+
+**Combined Insight:**
+- Math: Losses demand disproportionately larger gains to recover
+- Psychology: Losses are felt disproportionately more than gains
+
+👉 **Losses are asymmetric in both capital and emotion, which is why drawdown control dominates long-term performance.**
+
+In-game: "Recovery Drag" makes the car harder to accelerate when in drawdown. The deeper the hole, the harder to climb out.
+
+⸻
+
 🗺 World & Visual Design
 
 The Road = Market History
@@ -39,7 +81,31 @@ Bull market → smooth uphill highway
 Chop → winding mountain road
 Crash → steep downhill + fog + potholes
 
-You cannot see future road. Fog-of-war beyond current candle.
+⸻
+
+🔮 Historical vs Future Road (Fog of War)
+
+The road is divided into two parts:
+
+**Historical (Behind Car):** 100% opacity
+- You've driven it
+- Represents actual market history
+- Clear, certain, unchangeable
+
+**Future (Ahead of Car):** 50% opacity
+- Uncertain projection
+- Faded/fogged terrain
+- Shows current momentum hints but NOT certainty
+
+Visual Elements:
+- **NOW marker:** Yellow vertical line at car position
+- **Gradient zone:** Smooth transition from clear to fog
+- **Projection indicator:** "AHEAD: ↗ Likely uphill" based on momentum
+- **Fog overlay:** Semi-transparent cover on future terrain
+
+Press **V** to toggle fog of war on/off.
+
+This enforces the core lesson: **You cannot see the future market. Past performance ≠ future results.**
 
 ⸻
 
