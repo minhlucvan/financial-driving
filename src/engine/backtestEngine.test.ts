@@ -43,13 +43,18 @@ function createTestPortfolio(overrides: Partial<PortfolioState> = {}): Portfolio
 }
 
 function createTestPosition(overrides: Partial<Position> = {}): Position {
+  // Default sizeInDollars based on size and a 10000 portfolio
+  const size = overrides.size ?? 0.5;
+  const sizeInDollars = overrides.sizeInDollars ?? size * 10000;
+
   return {
     id: 'test-pos-1',
     direction: 'long',
     entryPrice: 100,
     entryIndex: 0,
     entryTime: '2024-01-01',
-    size: 0.5,
+    size,
+    sizeInDollars,
     currentPrice: 100,
     unrealizedPnL: 0,
     unrealizedPnLPercent: 0,
@@ -106,21 +111,22 @@ describe('Position Management', () => {
 
   describe('updatePosition', () => {
     it('should calculate profit for long position when price goes up', () => {
-      const position = createTestPosition({ entryPrice: 100, size: 0.5 });
+      // Position with sizeInDollars = 5000 (50% of 10000 portfolio)
+      const position = createTestPosition({ entryPrice: 100, size: 0.5, sizeInDollars: 5000 });
       const updated = updatePosition(position, 110);
 
       expect(updated.currentPrice).toBe(110);
       expect(updated.unrealizedPnLPercent).toBe(10); // 10% gain
-      expect(updated.unrealizedPnL).toBe(5); // 0.5 * 100 * 0.10 = 5
+      expect(updated.unrealizedPnL).toBe(500); // 5000 * 10% = 500
     });
 
     it('should calculate loss for long position when price goes down', () => {
-      const position = createTestPosition({ entryPrice: 100, size: 0.5 });
+      const position = createTestPosition({ entryPrice: 100, size: 0.5, sizeInDollars: 5000 });
       const updated = updatePosition(position, 90);
 
       expect(updated.currentPrice).toBe(90);
       expect(updated.unrealizedPnLPercent).toBe(-10); // 10% loss
-      expect(updated.unrealizedPnL).toBe(-5);
+      expect(updated.unrealizedPnL).toBe(-500); // 5000 * -10% = -500
     });
 
     it('should calculate profit for short position when price goes down', () => {
@@ -128,11 +134,12 @@ describe('Position Management', () => {
         direction: 'short',
         entryPrice: 100,
         size: 0.5,
+        sizeInDollars: 5000,
       });
       const updated = updatePosition(position, 90);
 
       expect(updated.unrealizedPnLPercent).toBe(10); // Short profits from price drop
-      expect(updated.unrealizedPnL).toBe(5);
+      expect(updated.unrealizedPnL).toBe(500); // 5000 * 10% = 500
     });
 
     it('should calculate loss for short position when price goes up', () => {
@@ -140,17 +147,19 @@ describe('Position Management', () => {
         direction: 'short',
         entryPrice: 100,
         size: 0.5,
+        sizeInDollars: 5000,
       });
       const updated = updatePosition(position, 110);
 
       expect(updated.unrealizedPnLPercent).toBe(-10); // Short loses when price rises
-      expect(updated.unrealizedPnL).toBe(-5);
+      expect(updated.unrealizedPnL).toBe(-500); // 5000 * -10% = -500
     });
 
     it('should apply leverage multiplier', () => {
       const position = createTestPosition({
         entryPrice: 100,
         size: 0.5,
+        sizeInDollars: 5000,
         leverage: 2,
       });
       const updated = updatePosition(position, 110);
@@ -204,10 +213,12 @@ describe('Portfolio Management', () => {
 
   describe('closePositionById', () => {
     it('should close position and realize profit', () => {
+      // Position with 5000 sizeInDollars (50% of 10000 portfolio)
       const position = createTestPosition({
         id: 'pos-1',
         entryPrice: 100,
         size: 0.5,
+        sizeInDollars: 5000,
       });
       const portfolio = createTestPortfolio({
         positions: [position],
@@ -215,13 +226,14 @@ describe('Portfolio Management', () => {
         totalExposure: 0.5,
       });
 
+      // Closing at 120 = 20% gain
       const updated = closePositionById(portfolio, 'pos-1', 120, 10);
 
       expect(updated.positions.length).toBe(0);
       expect(updated.closedPositions.length).toBe(1);
-      expect(updated.closedPositions[0].realizedPnL).toBe(10); // 20% of 50
-      expect(updated.cash).toBe(5000 + 50 + 10); // Original cash + position value + profit
-      expect(updated.totalRealizedPnL).toBe(10);
+      expect(updated.closedPositions[0].realizedPnL).toBe(1000); // 20% of 5000
+      expect(updated.cash).toBe(5000 + 5000 + 1000); // Original cash + position value + profit
+      expect(updated.totalRealizedPnL).toBe(1000);
       expect(updated.totalExposure).toBe(0);
     });
 
@@ -230,6 +242,7 @@ describe('Portfolio Management', () => {
         id: 'pos-1',
         entryPrice: 100,
         size: 0.5,
+        sizeInDollars: 5000,
       });
       const portfolio = createTestPortfolio({
         positions: [position],
@@ -237,10 +250,11 @@ describe('Portfolio Management', () => {
         totalExposure: 0.5,
       });
 
+      // Closing at 80 = 20% loss
       const updated = closePositionById(portfolio, 'pos-1', 80, 10);
 
-      expect(updated.closedPositions[0].realizedPnL).toBe(-10); // -20% loss
-      expect(updated.totalRealizedPnL).toBe(-10);
+      expect(updated.closedPositions[0].realizedPnL).toBe(-1000); // -20% of 5000
+      expect(updated.totalRealizedPnL).toBe(-1000);
     });
 
     it('should track holding period', () => {
@@ -284,18 +298,19 @@ describe('Portfolio Management', () => {
 
   describe('updatePortfolio', () => {
     it('should calculate equity correctly', () => {
-      const position = createTestPosition({ size: 0.5, entryPrice: 100 });
+      // Position with sizeInDollars = 5000
+      const position = createTestPosition({ size: 0.5, entryPrice: 100, sizeInDollars: 5000 });
       const portfolio = createTestPortfolio({
         positions: [position],
-        cash: 5000,
+        cash: 5000, // 5000 remains after opening 5000 position from 10000
         initialCapital: 10000,
       });
 
       const updated = updatePortfolio(portfolio, 110, 1, '2024-01-01');
 
-      // Unrealized P&L: 0.5 * 100 * 10% = 5
-      // Equity = cash + unrealized P&L = 5000 + 5 = 5005
-      expect(updated.equity).toBe(5005);
+      // Unrealized P&L: 5000 * 10% = 500
+      // Equity = cash + position value + unrealized P&L = 5000 + 5000 + 500 = 10500
+      expect(updated.equity).toBe(10500);
     });
 
     it('should calculate drawdown correctly', () => {

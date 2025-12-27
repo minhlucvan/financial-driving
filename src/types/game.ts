@@ -129,6 +129,7 @@ export interface Position {
   entryIndex: number;            // Bar index when opened
   entryTime: string;             // Date/time when opened
   size: number;                  // Size as fraction of portfolio (0-1)
+  sizeInDollars: number;         // Actual dollar value of the position
   currentPrice: number;          // Current market price
   unrealizedPnL: number;         // Current unrealized P&L in dollars
   unrealizedPnLPercent: number;  // Current unrealized P&L in percent
@@ -188,6 +189,7 @@ export interface ClosedPosition {
   exitPrice: number;
   exitIndex: number;
   size: number;
+  sizeInDollars: number;         // Actual dollar value of the position
   realizedPnL: number;
   realizedPnLPercent: number;
   holdingPeriod: number;         // Number of bars held

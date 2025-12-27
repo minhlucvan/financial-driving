@@ -44,8 +44,8 @@ export function updatePosition(position: Position, currentPrice: number): Positi
   const priceDiff = currentPrice - position.entryPrice;
   const pnlMultiplier = position.direction === 'long' ? 1 : -1;
   const unrealizedPnLPercent = (priceDiff / position.entryPrice) * 100 * pnlMultiplier * position.leverage;
-  const positionValue = position.size * position.entryPrice; // Nominal value at entry
-  const unrealizedPnL = positionValue * (unrealizedPnLPercent / 100);
+  // Use sizeInDollars for actual position value
+  const unrealizedPnL = position.sizeInDollars * (unrealizedPnLPercent / 100);
 
   return {
     ...position,
@@ -73,12 +73,15 @@ export function updatePortfolio(
   // Calculate aggregate metrics
   const totalUnrealizedPnL = updatedPositions.reduce((sum, pos) => sum + pos.unrealizedPnL, 0);
   const totalExposure = updatedPositions.reduce((sum, pos) => sum + pos.size, 0);
+  const totalPositionValue = updatedPositions.reduce((sum, pos) => sum + pos.sizeInDollars, 0);
 
-  // Calculate equity
-  const equity = portfolio.cash + totalUnrealizedPnL;
+  // Calculate equity (cash + position value + unrealized P&L)
+  // Note: cash was reduced by sizeInDollars when opening positions
+  const equity = portfolio.cash + totalPositionValue + totalUnrealizedPnL;
 
   // Calculate accumulated return
-  const accumulatedReturnDollar = equity - portfolio.initialCapital + portfolio.totalRealizedPnL;
+  // Note: totalRealizedPnL is already reflected in cash (no need to add again)
+  const accumulatedReturnDollar = equity - portfolio.initialCapital;
   const accumulatedReturn = (accumulatedReturnDollar / portfolio.initialCapital) * 100;
 
   // Update peak and drawdown
@@ -164,6 +167,7 @@ export function openPosition(
     entryIndex: currentIndex,
     entryTime: currentDate,
     size,
+    sizeInDollars: positionValue,
     currentPrice,
     unrealizedPnL: 0,
     unrealizedPnLPercent: 0,
@@ -211,6 +215,7 @@ export function closePositionById(
     exitPrice: currentPrice,
     exitIndex: currentIndex,
     size: positionToClose.size,
+    sizeInDollars: positionToClose.sizeInDollars,
     realizedPnL,
     realizedPnLPercent: updatedPosition.unrealizedPnLPercent,
     holdingPeriod: currentIndex - positionToClose.entryIndex,
@@ -219,8 +224,8 @@ export function closePositionById(
     isHedge: positionToClose.isHedge,
   };
 
-  // Return cash + P&L
-  const returnedCash = positionToClose.size * positionToClose.entryPrice + realizedPnL;
+  // Return cash (sizeInDollars) + P&L
+  const returnedCash = positionToClose.sizeInDollars + realizedPnL;
 
   return {
     ...portfolio,
