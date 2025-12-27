@@ -19,6 +19,10 @@ export interface CarState {
   carPhysics: CarPhysics;
   isAccelerating: boolean;
   isBraking: boolean;
+  // Hedge state
+  isHedged: boolean;
+  hedgeCoverage: number;  // 0-1
+  hedgeRemaining: number; // Candles remaining
 }
 
 export interface CarDefinition {
@@ -89,8 +93,15 @@ function getStressColor(temperature: number): number {
 // SEDAN CAR SVG
 // ============================================
 
+// Hedge shield colors
+const HEDGE_COLORS = {
+  shield: 0x3b82f6,    // Blue shield
+  glow: 0x60a5fa,      // Light blue glow
+  outline: 0x1d4ed8,   // Dark blue outline
+};
+
 function generateSedanSVG(state: CarState): string {
-  const { pnlPercent, carPhysics, isAccelerating, isBraking } = state;
+  const { pnlPercent, carPhysics, isAccelerating, isBraking, isHedged, hedgeCoverage, hedgeRemaining } = state;
   const width = 120;
   const height = 50;
 
@@ -99,6 +110,9 @@ function generateSedanSVG(state: CarState): string {
   const bodyOpacity = 0.75 + carPhysics.durability * 0.25;
   const engineGlow = isAccelerating ? 0.8 : 0.2;
   const brakeGlow = isBraking ? 0.9 : 0.2;
+
+  // Hedge visual intensity based on coverage and remaining time
+  const hedgeIntensity = isHedged ? hedgeCoverage * Math.min(1, hedgeRemaining / 3) : 0;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
   <defs>
@@ -110,7 +124,34 @@ function generateSedanSVG(state: CarState): string {
       <stop offset="0%" style="stop-color:${hexToCSS(CAR_COLORS.window)};stop-opacity:0.9"/>
       <stop offset="100%" style="stop-color:${hexToCSS(CAR_COLORS.window)};stop-opacity:0.5"/>
     </linearGradient>
+    ${isHedged ? `
+    <radialGradient id="hedgeGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:${hexToCSS(HEDGE_COLORS.glow)};stop-opacity:${hedgeIntensity * 0.4}"/>
+      <stop offset="100%" style="stop-color:${hexToCSS(HEDGE_COLORS.shield)};stop-opacity:0"/>
+    </radialGradient>
+    ` : ''}
   </defs>
+
+  ${isHedged ? `
+  <!-- Hedge Shield Glow -->
+  <ellipse cx="60" cy="28" rx="65" ry="25" fill="url(#hedgeGlow)"/>
+
+  <!-- Hedge Shield Arc -->
+  <path d="M 5 35 Q 60 -5 115 35"
+        fill="none"
+        stroke="${hexToCSS(HEDGE_COLORS.shield)}"
+        stroke-width="3"
+        stroke-opacity="${hedgeIntensity * 0.8}"
+        stroke-linecap="round"/>
+
+  <!-- Shield Icon -->
+  <path d="M 95 8 L 95 18 Q 95 24 102 28 Q 109 24 109 18 L 109 8 Q 102 5 95 8 Z"
+        fill="${hexToCSS(HEDGE_COLORS.shield)}"
+        fill-opacity="${hedgeIntensity * 0.9}"
+        stroke="${hexToCSS(HEDGE_COLORS.outline)}"
+        stroke-width="1"/>
+  <text x="102" y="20" text-anchor="middle" font-size="8" fill="#fff" font-weight="bold">${Math.round(hedgeCoverage * 100)}</text>
+  ` : ''}
 
   <!-- Shadow -->
   <ellipse cx="60" cy="47" rx="50" ry="4" fill="#000" opacity="0.3"/>
@@ -155,6 +196,13 @@ function generateSedanSVG(state: CarState): string {
   <rect x="45" y="30" width="30" height="4" fill="#222" rx="1"/>
   <rect x="46" y="31" width="${28 * carPhysics.fuelLevel}" height="2"
         fill="${carPhysics.fuelLevel > 0.3 ? hexToCSS(UI_COLORS.positive) : hexToCSS(UI_COLORS.negative)}" rx="1"/>
+
+  ${isHedged ? `
+  <!-- Hedge Remaining Indicator -->
+  <rect x="45" y="42" width="30" height="3" fill="#222" rx="1"/>
+  <rect x="46" y="43" width="${28 * Math.min(1, hedgeRemaining / 5)}" height="1"
+        fill="${hexToCSS(HEDGE_COLORS.shield)}" rx="0.5"/>
+  ` : ''}
 </svg>`;
 }
 
@@ -163,7 +211,7 @@ function generateSedanSVG(state: CarState): string {
 // ============================================
 
 function generateSportsSVG(state: CarState): string {
-  const { pnlPercent, carPhysics, isAccelerating, isBraking } = state;
+  const { pnlPercent, carPhysics, isAccelerating, isBraking, isHedged, hedgeCoverage, hedgeRemaining } = state;
   const width = 130;
   const height = 45;
 
@@ -172,6 +220,9 @@ function generateSportsSVG(state: CarState): string {
   const bodyOpacity = 0.75 + carPhysics.durability * 0.25;
   const engineGlow = isAccelerating ? 0.9 : 0.2;
   const brakeGlow = isBraking ? 0.95 : 0.2;
+
+  // Hedge visual intensity based on coverage and remaining time
+  const hedgeIntensity = isHedged ? hedgeCoverage * Math.min(1, hedgeRemaining / 3) : 0;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
   <defs>
@@ -183,7 +234,34 @@ function generateSportsSVG(state: CarState): string {
       <stop offset="0%" style="stop-color:${hexToCSS(CAR_COLORS.window)};stop-opacity:0.85"/>
       <stop offset="100%" style="stop-color:${hexToCSS(CAR_COLORS.window)};stop-opacity:0.4"/>
     </linearGradient>
+    ${isHedged ? `
+    <radialGradient id="sportsHedgeGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:${hexToCSS(HEDGE_COLORS.glow)};stop-opacity:${hedgeIntensity * 0.4}"/>
+      <stop offset="100%" style="stop-color:${hexToCSS(HEDGE_COLORS.shield)};stop-opacity:0"/>
+    </radialGradient>
+    ` : ''}
   </defs>
+
+  ${isHedged ? `
+  <!-- Hedge Shield Glow -->
+  <ellipse cx="65" cy="25" rx="70" ry="22" fill="url(#sportsHedgeGlow)"/>
+
+  <!-- Hedge Shield Arc - Sleeker for sports car -->
+  <path d="M 0 32 Q 65 -5 130 32"
+        fill="none"
+        stroke="${hexToCSS(HEDGE_COLORS.shield)}"
+        stroke-width="2.5"
+        stroke-opacity="${hedgeIntensity * 0.8}"
+        stroke-linecap="round"/>
+
+  <!-- Shield Icon - Positioned on spoiler area -->
+  <path d="M 108 4 L 108 12 Q 108 16 114 19 Q 120 16 120 12 L 120 4 Q 114 1 108 4 Z"
+        fill="${hexToCSS(HEDGE_COLORS.shield)}"
+        fill-opacity="${hedgeIntensity * 0.9}"
+        stroke="${hexToCSS(HEDGE_COLORS.outline)}"
+        stroke-width="1"/>
+  <text x="114" y="13" text-anchor="middle" font-size="7" fill="#fff" font-weight="bold">${Math.round(hedgeCoverage * 100)}</text>
+  ` : ''}
 
   <!-- Shadow -->
   <ellipse cx="65" cy="42" rx="55" ry="4" fill="#000" opacity="0.35"/>
@@ -258,6 +336,13 @@ function generateSportsSVG(state: CarState): string {
     ).join('')}
   </g>
   ` : ''}
+
+  ${isHedged ? `
+  <!-- Hedge Remaining Indicator - Racing style bar -->
+  <rect x="55" y="38" width="24" height="2" fill="#222" rx="1"/>
+  <rect x="56" y="38.5" width="${22 * Math.min(1, hedgeRemaining / 5)}" height="1"
+        fill="${hexToCSS(HEDGE_COLORS.shield)}" rx="0.5"/>
+  ` : ''}
 </svg>`;
 }
 
@@ -294,8 +379,9 @@ export function getCarTextureKey(carType: CarType, state: CarState): string {
   const tempBucket = Math.floor(state.carPhysics.engineTemperature * 10);
   const fuelBucket = Math.floor(state.carPhysics.fuelLevel * 10);
   const leverageBucket = Math.floor(state.carPhysics.accelerationBoost);
+  const hedgeBucket = state.isHedged ? `h${Math.floor(state.hedgeCoverage * 10)}_${state.hedgeRemaining}` : 'nh';
 
-  return `car_${carType}_${pnlBucket}_${tempBucket}_${fuelBucket}_${leverageBucket}_${state.isAccelerating ? 1 : 0}_${state.isBraking ? 1 : 0}`;
+  return `car_${carType}_${pnlBucket}_${tempBucket}_${fuelBucket}_${leverageBucket}_${state.isAccelerating ? 1 : 0}_${state.isBraking ? 1 : 0}_${hedgeBucket}`;
 }
 
 /**
@@ -316,6 +402,9 @@ export function generateCarPreviewSVG(carType: CarType): string {
     },
     isAccelerating: false,
     isBraking: false,
+    isHedged: false,
+    hedgeCoverage: 0,
+    hedgeRemaining: 0,
   };
 
   return generateCarSVG(carType, neutralState);

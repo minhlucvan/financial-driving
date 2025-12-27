@@ -38,6 +38,7 @@ import {
   LOSS_AVERSION_MULTIPLIER,
   calculateRecoveryNeeded,
 } from '../types/game';
+import { activateHedge, processHedges, HEDGE_CONFIGS } from '../skills';
 import {
   INITIAL_APP_STATE,
   INITIAL_TIMELINE_STATE,
@@ -90,7 +91,9 @@ type AppAction =
   | { type: 'SET_GAME_STATE'; payload: GameState }
   // Reset
   | { type: 'RESET_GAME' }
-  | { type: 'RESET_ALL' };
+  | { type: 'RESET_ALL' }
+  // Skills
+  | { type: 'ACTIVATE_HEDGE'; payload: { hedgeType?: 'basic' | 'tight' | 'tail' | 'dynamic' } };
 
 // ============================================
 // HELPER FUNCTIONS
@@ -1238,6 +1241,57 @@ function appReducer(state: ReducerState, action: AppAction): ReducerState {
     case 'RESET_ALL':
       return initialReducerState;
 
+    case 'ACTIVATE_HEDGE': {
+      const hedgeType = action.payload.hedgeType || 'basic';
+      const portfolio = state.backtest.portfolio;
+
+      // Try to activate hedge
+      const result = activateHedge({
+        portfolio,
+        hedgeType,
+        currentPrice: state.market.currentPrice,
+        currentTick: state.timeline.currentIndex,
+      });
+
+      if (!result.success) {
+        // Hedge activation failed - update message but no state change
+        console.log('Hedge failed:', result.event.message);
+        return {
+          ...state,
+          backtest: {
+            ...state.backtest,
+            portfolio: {
+              ...portfolio,
+              skillState: {
+                ...portfolio.skillState,
+                lastSkillMessage: result.event.message,
+                lastSkillMessageTime: Date.now(),
+              },
+            },
+          },
+        };
+      }
+
+      // Hedge activated successfully
+      const newSkillState = {
+        ...portfolio.skillState,
+        ...result.newState,
+      };
+
+      return {
+        ...state,
+        backtest: {
+          ...state.backtest,
+          portfolio: {
+            ...portfolio,
+            skillState: newSkillState,
+            // Deduct hedge cost from cash
+            cash: portfolio.cash - (result.event as any).costPaid,
+          },
+        },
+      };
+    }
+
     default:
       return state;
   }
@@ -1283,6 +1337,9 @@ interface AppStateContextValue extends UnifiedAppState {
   // Reset
   resetGame: () => void;
   resetAll: () => void;
+
+  // Skills
+  activateHedge: (hedgeType?: 'basic' | 'tight' | 'tail' | 'dynamic') => void;
 
   // Selectors
   getChartData: () => ChartCandle[];
@@ -1518,6 +1575,11 @@ export function AppStateProvider({
     dispatch({ type: 'RESET_ALL' });
   }, []);
 
+  // Skills
+  const activateHedgeCallback = useCallback((hedgeType: 'basic' | 'tight' | 'tail' | 'dynamic' = 'basic') => {
+    dispatch({ type: 'ACTIVATE_HEDGE', payload: { hedgeType } });
+  }, []);
+
   // Selectors
   const getChartData = useCallback(() => state.market.visibleCandles, [state.market.visibleCandles]);
 
@@ -1547,6 +1609,8 @@ export function AppStateProvider({
     setGameState,
     resetGame,
     resetAll,
+    // Skills
+    activateHedge: activateHedgeCallback,
     getChartData,
     isPlaying,
   };

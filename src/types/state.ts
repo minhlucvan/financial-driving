@@ -12,7 +12,9 @@ import type {
   BacktestTick,
   CarPhysics,
   RoadConditions,
+  SkillState,
 } from './game';
+import { INITIAL_SKILL_STATE } from '../skills/types';
 
 // ============================================
 // MARKET STATE - Derived from timeline position
@@ -238,6 +240,7 @@ export const INITIAL_PORTFOLIO_STATE: PortfolioState = {
   stressLevel: 0,
   rawStress: 0,
   carPhysics: INITIAL_CAR_PHYSICS,
+  skillState: INITIAL_SKILL_STATE,
 };
 
 export const INITIAL_BACKTEST_STATE: BacktestEngineState = {

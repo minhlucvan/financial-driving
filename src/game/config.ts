@@ -20,6 +20,7 @@ export interface GameConfigOptions {
   onVehicleUpdate?: (data: VehicleUpdateData) => void;
   onStateChange?: (state: 'playing' | 'victory' | 'bankrupt') => void;
   onReset?: () => void;
+  onHedgeActivate?: () => void;
 }
 
 // Global game state that can be accessed from scenes
@@ -27,6 +28,7 @@ export interface GlobalGameState {
   onVehicleUpdate?: (data: VehicleUpdateData) => void;
   onStateChange?: (state: 'playing' | 'victory' | 'bankrupt') => void;
   onReset?: () => void;
+  onHedgeActivate?: () => void;
   vehicleKey: string;
   carType: CarType;
   currentMarketDataKey: string;
@@ -45,6 +47,7 @@ export function createGameConfig(options: GameConfigOptions): Phaser.Types.Core.
   globalGameState.onVehicleUpdate = options.onVehicleUpdate;
   globalGameState.onStateChange = options.onStateChange;
   globalGameState.onReset = options.onReset;
+  globalGameState.onHedgeActivate = options.onHedgeActivate;
 
   // Calculate dimensions
   const logicalWidth = 1536;

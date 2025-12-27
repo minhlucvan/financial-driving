@@ -120,6 +120,12 @@ export class GameScene extends Phaser.Scene {
     currentIndex: 0,
     wealth: 10000,
     datasetName: 'S&P 500',
+
+    // Hedge state
+    isHedged: false,
+    hedgeCoverage: 0,
+    hedgeRemaining: 0,
+    hedgeCooldown: 0,
   };
 
   constructor() {
@@ -272,7 +278,7 @@ export class GameScene extends Phaser.Scene {
   private async createSVGCarSprite() {
     if (!this.carBody) return;
 
-    const { pnlPercent, carPhysics } = this.externalState;
+    const { pnlPercent, carPhysics, isHedged, hedgeCoverage, hedgeRemaining } = this.externalState;
     const carDef = getCarDefinition(this.carType);
 
     // Generate initial SVG
@@ -281,6 +287,9 @@ export class GameScene extends Phaser.Scene {
       carPhysics,
       isAccelerating: false,
       isBraking: false,
+      isHedged,
+      hedgeCoverage,
+      hedgeRemaining,
     };
 
     const svgString = generateCarSVG(this.carType, state);
@@ -308,7 +317,7 @@ export class GameScene extends Phaser.Scene {
   private async updateSVGCarTexture() {
     if (!this.carSprite || !this.carBody) return;
 
-    const { pnlPercent, carPhysics } = this.externalState;
+    const { pnlPercent, carPhysics, isHedged, hedgeCoverage, hedgeRemaining } = this.externalState;
     const carDef = getCarDefinition(this.carType);
     const isAccelerating = this.cursors?.up.isDown ?? false;
     const isBraking = this.cursors?.down.isDown ?? false;
@@ -319,6 +328,9 @@ export class GameScene extends Phaser.Scene {
       carPhysics,
       isAccelerating,
       isBraking,
+      isHedged,
+      hedgeCoverage,
+      hedgeRemaining,
     };
 
     const textureKey = getCarTextureKey(this.carType, state);
@@ -360,6 +372,13 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard!.addKey('R').on('down', () => {
       if (globalGameState.onReset) {
         globalGameState.onReset();
+      }
+    });
+
+    // Hedge activation (H key)
+    this.input.keyboard!.addKey('H').on('down', () => {
+      if (globalGameState.onHedgeActivate) {
+        globalGameState.onHedgeActivate();
       }
     });
   }

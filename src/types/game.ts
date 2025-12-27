@@ -111,6 +111,10 @@ export interface RoadSegment {
 // BACKTESTING ENGINE TYPES
 // ============================================
 
+// Re-export skill types for convenience
+export type { SkillState, HedgeState, HedgeType } from '../skills/types';
+export { INITIAL_SKILL_STATE, HEDGE_CONFIGS } from '../skills/types';
+
 // Direction of a position
 export type PositionDirection = 'long' | 'short';
 
@@ -161,6 +165,9 @@ export interface PortfolioState {
 
   // Car Physics State (derived from portfolio)
   carPhysics: CarPhysics;
+
+  // Skills State
+  skillState: import('../skills/types').SkillState;
 }
 
 // Closed position record

@@ -28,6 +28,7 @@ const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
       updateVehicle,
       setGameState,
       resetGame,
+      activateHedge,
       // State to send to game
       terrain,
       physics,
@@ -35,6 +36,7 @@ const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
       market,
       position,
       datasetName,
+      backtest,
     } = useAppState();
 
     useImperativeHandle(ref, () => ({
@@ -101,6 +103,10 @@ const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
         onReset: () => {
           resetGame();
         },
+        // Hedge activation handler
+        onHedgeActivate: () => {
+          activateHedge('basic');
+        },
       });
 
       // Create the Phaser game
@@ -124,6 +130,10 @@ const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
     // Sync state from React to Game whenever it changes
     useEffect(() => {
       if (gameRef.current) {
+        // Get active hedge info for visual display
+        const activeHedges = backtest.portfolio.skillState.activeHedges;
+        const primaryHedge = activeHedges.length > 0 ? activeHedges[0] : null;
+
         gameRef.current.events.emit('updateState', {
           terrainSlope: terrain.currentSlope,
           terrainRoughness: terrain.currentRoughness,
@@ -137,9 +147,18 @@ const PhaserGame = forwardRef<PhaserGameHandle, PhaserGameProps>(
           datasetName: datasetName,
           exposure: position.exposure,
           isPositionOpen: position.isOpen,
+          carPhysics: backtest.portfolio.carPhysics,
+          pnlPercent: backtest.portfolio.accumulatedReturn,
+          drawdown: backtest.portfolio.drawdown,
+          stressLevel: backtest.portfolio.stressLevel,
+          // Hedge state
+          isHedged: primaryHedge !== null && primaryHedge.isActive,
+          hedgeCoverage: primaryHedge?.coverage ?? 0,
+          hedgeRemaining: primaryHedge?.remainingCandles ?? 0,
+          hedgeCooldown: backtest.portfolio.skillState.hedgeCooldown,
         });
       }
-    }, [terrain, physics, wealth, market.regime, datasetName, position]);
+    }, [terrain, physics, wealth, market.regime, datasetName, position, backtest]);
 
     // Handle resize
     useEffect(() => {
