@@ -14,6 +14,11 @@ import {
   drawBar,
   type RoadGeometry,
   type CarGeometry,
+  // SVG car system
+  generateCarSVG,
+  getCarTextureKey,
+  loadSVGTexture,
+  type CarSVGConfig,
 } from '../vector';
 import {
   REGIME_COLORS,
@@ -37,6 +42,13 @@ export class GameScene extends Phaser.Scene {
   private roadGraphics: Phaser.GameObjects.Graphics | null = null;
   private carGraphics: Phaser.GameObjects.Graphics | null = null;
   private hudGraphics: Phaser.GameObjects.Graphics | null = null;
+
+  // SVG car sprite (alternative to graphics-based car)
+  private carSprite: Phaser.GameObjects.Sprite | null = null;
+  private useSVGCar = true; // Toggle between SVG sprite and graphics
+  private lastCarTextureKey = '';
+  private carSpriteWidth = 120;
+  private carSpriteHeight = 60;
 
   // Physics bodies
   private carBody: MatterJS.BodyType | null = null;
@@ -138,6 +150,11 @@ export class GameScene extends Phaser.Scene {
 
     // Create vector car
     this.createVectorCar();
+
+    // Create SVG car sprite (if using SVG mode)
+    if (this.useSVGCar) {
+      this.createSVGCarSprite();
+    }
 
     // Setup camera to follow car
     if (this.carBody) {
@@ -254,6 +271,79 @@ export class GameScene extends Phaser.Scene {
 
     // Mouse spring for debug
     this.matter.add.mouseSpring();
+  }
+
+  private async createSVGCarSprite() {
+    if (!this.carBody) return;
+
+    const { pnlPercent, carPhysics } = this.externalState;
+
+    // Generate initial SVG
+    const config: CarSVGConfig = {
+      width: this.carSpriteWidth,
+      height: this.carSpriteHeight,
+      pnlPercent,
+      carPhysics,
+      isAccelerating: false,
+      isBraking: false,
+    };
+
+    const svgString = generateCarSVG(config);
+    const textureKey = 'svgCar_initial';
+
+    // Load SVG as texture
+    await loadSVGTexture(this, textureKey, svgString, this.carSpriteWidth, this.carSpriteHeight);
+
+    // Create sprite at car body position
+    this.carSprite = this.add.sprite(
+      this.carBody.position.x,
+      this.carBody.position.y,
+      textureKey
+    );
+
+    // Set origin to center
+    this.carSprite.setOrigin(0.5, 0.5);
+
+    // Initial rotation
+    this.carSprite.setRotation(this.carBody.angle);
+
+    this.lastCarTextureKey = textureKey;
+  }
+
+  private async updateSVGCarTexture() {
+    if (!this.carSprite || !this.carBody) return;
+
+    const { pnlPercent, carPhysics } = this.externalState;
+    const isAccelerating = this.cursors?.up.isDown ?? false;
+    const isBraking = this.cursors?.down.isDown ?? false;
+
+    // Generate texture key based on state
+    const config: CarSVGConfig = {
+      width: this.carSpriteWidth,
+      height: this.carSpriteHeight,
+      pnlPercent,
+      carPhysics,
+      isAccelerating,
+      isBraking,
+    };
+
+    const textureKey = getCarTextureKey(config);
+
+    // Only update if texture changed
+    if (textureKey !== this.lastCarTextureKey) {
+      const svgString = generateCarSVG(config);
+
+      // Load new texture
+      await loadSVGTexture(this, textureKey, svgString, this.carSpriteWidth, this.carSpriteHeight);
+
+      // Update sprite texture
+      this.carSprite.setTexture(textureKey);
+      this.lastCarTextureKey = textureKey;
+    }
+
+    // Update position and rotation to match physics body
+    this.carSprite.setPosition(this.carBody.position.x, this.carBody.position.y);
+    this.carSprite.setRotation(this.carBody.angle);
   }
 
   private updatePhysicsFromState() {
@@ -392,17 +482,23 @@ export class GameScene extends Phaser.Scene {
       this.renderRoad();
     }
 
-    // 5. Draw car
-    if (this.carGraphics && this.carBody) {
-      const carGeometry: CarGeometry = {
-        x: this.carBody.position.x,
-        y: this.carBody.position.y,
-        width: 100,
-        height: 40,
-        rotation: this.carBody.angle,
-        wheelRadius: 18,
-      };
-      drawVectorCar(this.carGraphics, carGeometry, carPhysics, pnlPercent);
+    // 5. Draw car (SVG sprite or Graphics-based)
+    if (this.carBody) {
+      if (this.useSVGCar && this.carSprite) {
+        // Update SVG sprite texture and position
+        this.updateSVGCarTexture();
+      } else if (this.carGraphics) {
+        // Fallback to graphics-based rendering
+        const carGeometry: CarGeometry = {
+          x: this.carBody.position.x,
+          y: this.carBody.position.y,
+          width: 100,
+          height: 40,
+          rotation: this.carBody.angle,
+          wheelRadius: 18,
+        };
+        drawVectorCar(this.carGraphics, carGeometry, carPhysics, pnlPercent);
+      }
     }
 
     // 6. Draw HUD (screen-space)
