@@ -129,6 +129,16 @@ export function updatePortfolio(
 }
 
 /**
+ * Options for opening a position
+ */
+export interface OpenPositionOptions {
+  isHedge?: boolean;
+  instrument?: 'asset' | 'index';
+  beta?: number;
+  hedgesPositionId?: string;
+}
+
+/**
  * Open a new position
  */
 export function openPosition(
@@ -138,7 +148,8 @@ export function openPosition(
   currentPrice: number,
   currentIndex: number,
   currentDate: string,
-  leverage: number = 1
+  leverage: number = 1,
+  options: OpenPositionOptions = {}
 ): PortfolioState {
   // Calculate position size in dollars
   const availableCash = portfolio.cash;
@@ -157,6 +168,11 @@ export function openPosition(
     unrealizedPnL: 0,
     unrealizedPnLPercent: 0,
     leverage,
+    // New fields for hedge support
+    instrument: options.instrument ?? 'asset',
+    isHedge: options.isHedge ?? false,
+    beta: options.beta,
+    hedgesPositionId: options.hedgesPositionId,
   };
 
   // Reduce cash by position value (for margin)
@@ -198,6 +214,9 @@ export function closePositionById(
     realizedPnL,
     realizedPnLPercent: updatedPosition.unrealizedPnLPercent,
     holdingPeriod: currentIndex - positionToClose.entryIndex,
+    // Preserve hedge info
+    instrument: positionToClose.instrument,
+    isHedge: positionToClose.isHedge,
   };
 
   // Return cash + P&L

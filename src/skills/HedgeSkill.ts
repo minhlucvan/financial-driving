@@ -1,9 +1,9 @@
 /**
  * Hedge Skill Implementation
  *
- * Allows players to protect against losses by paying a premium.
- * If price moves against position, hedge absorbs percentage of loss.
- * If price moves with position, hedge premium is lost.
+ * A hedge is a SHORT position on the index instrument.
+ * The position size is calculated based on current holdings and beta.
+ * When the market goes down, the short position profits, offsetting losses.
  */
 
 import type {
@@ -13,11 +13,18 @@ import type {
   HedgeResult,
   SkillState,
   HedgeActivatedEvent,
-  HedgeTriggeredEvent,
   HedgeExpiredEvent,
   HedgeFailedEvent,
 } from './types';
 import { HEDGE_CONFIGS, INITIAL_SKILL_STATE } from './types';
+
+// ============================================
+// HEDGE POSITION ID GENERATION
+// ============================================
+
+function generateHedgePositionId(): string {
+  return `hedge_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
 
 // ============================================
 // HEDGE ACTIVATION
@@ -26,12 +33,22 @@ import { HEDGE_CONFIGS, INITIAL_SKILL_STATE } from './types';
 export interface ActivateHedgeParams {
   hedgeType: HedgeType;
   currentPrice: number;
-  positionValue: number;      // Current position size in $
+  positionValue: number;      // Current total position value in $
   portfolioValue: number;     // Total portfolio value
   currentTick: number;
   skillState: SkillState;
 }
 
+/**
+ * Activate a hedge by opening a SHORT position on the index.
+ *
+ * The hedge size is calculated as: hedgeSize = positionValue * beta
+ *
+ * For example, with beta = 0.7 and $10,000 in positions:
+ * - Hedge size = $10,000 * 0.7 = $7,000 SHORT on index
+ * - If market drops 10%, long positions lose $1,000
+ * - But short hedge gains $700, net loss = $300 (70% protection)
+ */
 export function activateHedge(params: ActivateHedgeParams): HedgeResult {
   const {
     hedgeType,
@@ -96,40 +113,60 @@ export function activateHedge(params: ActivateHedgeParams): HedgeResult {
     };
   }
 
-  // Calculate cost (with player upgrades)
-  const effectiveCost = Math.max(0.005, config.cost - skillState.hedgeCostReduction);
-  const costPaid = Math.abs(positionValue) * effectiveCost;
+  // Calculate hedge size based on position value and beta
+  const hedgeSize = Math.abs(positionValue) * config.beta;
+  const hedgeSizeAsFraction = hedgeSize / portfolioValue;
 
-  // Check if player can afford
-  if (costPaid > portfolioValue * 0.1) {
+  // Calculate transaction cost
+  const effectiveCost = Math.max(0.001, config.cost - skillState.hedgeCostReduction);
+  const costPaid = hedgeSize * effectiveCost;
+
+  // Check if player can afford the transaction cost
+  if (costPaid > portfolioValue * 0.05) {
     return {
       success: false,
       event: {
         type: 'hedge_failed',
         reason: 'insufficient_funds',
-        message: `Hedge cost $${costPaid.toFixed(0)} exceeds 10% of portfolio`,
+        message: `Hedge cost $${costPaid.toFixed(0)} exceeds 5% of portfolio`,
       },
       newState: {},
     };
   }
 
-  // Create hedge state
+  // Generate position ID for the short index position
+  const positionId = generateHedgePositionId();
+
+  // Create hedge state that tracks the position
   const newHedge: HedgeState = {
     isActive: true,
     type: hedgeType,
-    coverage: config.coverage,
+    positionId,
+    beta: config.beta,
+    hedgeSize,
+    entryPrice: currentPrice,
     costPaid,
     remainingCandles: config.duration,
+    activatedAt: currentTick,
+    // Legacy fields
+    coverage: config.beta,
     triggerPrice: currentPrice,
     payoutAccumulated: 0,
-    activatedAt: currentTick,
   };
 
   const event: HedgeActivatedEvent = {
     type: 'hedge_activated',
     hedge: newHedge,
+    position: {
+      id: positionId,
+      direction: 'short',
+      size: hedgeSizeAsFraction,
+      sizeInDollars: hedgeSize,
+      entryPrice: currentPrice,
+      beta: config.beta,
+    },
     costPaid,
-    message: `${config.name} activated! Cost: $${costPaid.toFixed(0)} | Coverage: ${(config.coverage * 100).toFixed(0)}% | Duration: ${config.duration} candles`,
+    message: `${config.name} activated! SHORT $${hedgeSize.toFixed(0)} on index (β=${config.beta}) | Cost: $${costPaid.toFixed(0)} | Duration: ${config.duration} candles`,
   };
 
   return {
@@ -140,6 +177,17 @@ export function activateHedge(params: ActivateHedgeParams): HedgeResult {
       lastSkillMessage: event.message,
       lastSkillMessageTime: Date.now(),
     },
+    // Position to be created by AppStateProvider
+    newPosition: {
+      id: positionId,
+      direction: 'short',
+      instrument: 'index',
+      size: hedgeSizeAsFraction,
+      sizeInDollars: hedgeSize,
+      entryPrice: currentPrice,
+      beta: config.beta,
+      isHedge: true,
+    },
   };
 }
 
@@ -148,40 +196,38 @@ export function activateHedge(params: ActivateHedgeParams): HedgeResult {
 // ============================================
 
 export interface ProcessHedgeParams {
-  priceChange: number;        // Percentage change this tick (-0.05 = -5%)
-  positionValue: number;      // Current position value
-  positionDirection: 'long' | 'short' | 'none';
+  currentPrice: number;
   currentTick: number;
   skillState: SkillState;
+  // Callback to get position P&L
+  getPositionPnL?: (positionId: string) => number;
 }
 
 export interface ProcessHedgeResult {
-  lossAbsorbed: number;       // Amount of loss absorbed by hedges
-  hedgesTriggered: HedgeState[];
+  hedgesToClose: string[];      // Position IDs to close
   hedgesExpired: HedgeState[];
-  events: (HedgeTriggeredEvent | HedgeExpiredEvent)[];
+  events: HedgeExpiredEvent[];
   newState: Partial<SkillState>;
 }
 
+/**
+ * Process hedges each tick.
+ *
+ * The hedge position P&L is handled automatically by the position system.
+ * This function only manages the duration countdown and triggers auto-close.
+ */
 export function processHedges(params: ProcessHedgeParams): ProcessHedgeResult {
   const {
-    priceChange,
-    positionValue,
-    positionDirection,
+    currentPrice,
     currentTick,
     skillState,
+    getPositionPnL,
   } = params;
 
-  let totalLossAbsorbed = 0;
-  const hedgesTriggered: HedgeState[] = [];
+  const hedgesToClose: string[] = [];
   const hedgesExpired: HedgeState[] = [];
-  const events: (HedgeTriggeredEvent | HedgeExpiredEvent)[] = [];
+  const events: HedgeExpiredEvent[] = [];
   const updatedHedges: HedgeState[] = [];
-
-  // Determine if this tick is a loss for the position
-  const isLoss = (positionDirection === 'long' && priceChange < 0) ||
-                 (positionDirection === 'short' && priceChange > 0);
-  const rawLoss = isLoss ? Math.abs(positionValue * priceChange) : 0;
 
   for (const hedge of skillState.activeHedges) {
     // Decrement remaining candles
@@ -190,43 +236,25 @@ export function processHedges(params: ProcessHedgeParams): ProcessHedgeResult {
       remainingCandles: hedge.remainingCandles - 1,
     };
 
-    // Check if hedge should trigger (absorb loss)
-    if (isLoss && rawLoss > 0 && hedge.isActive) {
-      let coverage = hedge.coverage;
-
-      // Tail hedge: extra coverage for large losses
-      if (hedge.type === 'tail' && Math.abs(priceChange) > 0.20) {
-        coverage = 1.50; // 150% coverage on crashes > 20%
-      }
-
-      const lossAbsorbed = rawLoss * coverage;
-      totalLossAbsorbed += lossAbsorbed;
-      updatedHedge.payoutAccumulated += lossAbsorbed;
-
-      hedgesTriggered.push(updatedHedge);
-
-      events.push({
-        type: 'hedge_triggered',
-        hedge: updatedHedge,
-        lossAbsorbed,
-        netLoss: rawLoss - lossAbsorbed,
-        message: `Hedge absorbed $${lossAbsorbed.toFixed(0)}! Net loss: $${(rawLoss - lossAbsorbed).toFixed(0)} (saved ${(coverage * 100).toFixed(0)}%)`,
-      });
-    }
-
-    // Check if hedge expired
+    // Check if hedge expired (duration ended)
     if (updatedHedge.remainingCandles <= 0) {
       updatedHedge.isActive = false;
       hedgesExpired.push(updatedHedge);
+      hedgesToClose.push(hedge.positionId);
 
-      const wasUseful = updatedHedge.payoutAccumulated > 0;
+      // Get realized P&L from the position if available
+      const realizedPnL = getPositionPnL ? getPositionPnL(hedge.positionId) : 0;
+      const wasUseful = realizedPnL > 0;
+
       events.push({
         type: 'hedge_expired',
         hedge: updatedHedge,
+        positionId: hedge.positionId,
+        realizedPnL,
         wasUseful,
         message: wasUseful
-          ? `Hedge expired. Absorbed total: $${updatedHedge.payoutAccumulated.toFixed(0)} | Cost: $${updatedHedge.costPaid.toFixed(0)}`
-          : `Hedge expired unused. Cost of insurance: $${updatedHedge.costPaid.toFixed(0)}`,
+          ? `Hedge closed with profit: $${realizedPnL.toFixed(0)} | Cost: $${hedge.costPaid.toFixed(0)} | Net: $${(realizedPnL - hedge.costPaid).toFixed(0)}`
+          : `Hedge closed with loss: $${realizedPnL.toFixed(0)} | Cost: $${hedge.costPaid.toFixed(0)} | Total cost: $${(hedge.costPaid - realizedPnL).toFixed(0)}`,
       });
     } else {
       updatedHedges.push(updatedHedge);
@@ -245,8 +273,7 @@ export function processHedges(params: ProcessHedgeParams): ProcessHedgeResult {
   }
 
   return {
-    lossAbsorbed: totalLossAbsorbed,
-    hedgesTriggered,
+    hedgesToClose,
     hedgesExpired,
     events,
     newState: {
@@ -282,10 +309,25 @@ export function getHedgeCooldownRemaining(skillState: SkillState): number {
 export function getActiveHedgeCoverage(skillState: SkillState): number {
   if (skillState.activeHedges.length === 0) return 0;
 
-  // Return max coverage from active hedges
-  return Math.max(...skillState.activeHedges.map(h => h.coverage));
+  // Return max beta from active hedges
+  return Math.max(...skillState.activeHedges.map(h => h.beta));
+}
+
+export function getTotalHedgeSize(skillState: SkillState): number {
+  return skillState.activeHedges.reduce((sum, h) => sum + h.hedgeSize, 0);
 }
 
 export function getTotalHedgeCost(skillState: SkillState): number {
   return skillState.activeHedges.reduce((sum, h) => sum + h.costPaid, 0);
+}
+
+/**
+ * Calculate the effective hedge ratio for display
+ * This shows how much of the position is protected
+ */
+export function getEffectiveHedgeRatio(skillState: SkillState): number {
+  if (skillState.activeHedges.length === 0) return 0;
+
+  // Sum of all betas (can exceed 1 if over-hedged)
+  return skillState.activeHedges.reduce((sum, h) => sum + h.beta, 0);
 }

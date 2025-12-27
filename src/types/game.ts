@@ -118,6 +118,9 @@ export { INITIAL_SKILL_STATE, HEDGE_CONFIGS } from '../skills/types';
 // Direction of a position
 export type PositionDirection = 'long' | 'short';
 
+// Instrument type - asset is the main traded instrument, index is for hedging
+export type InstrumentType = 'asset' | 'index';
+
 // Individual position in the portfolio
 export interface Position {
   id: string;                    // Unique identifier
@@ -130,6 +133,12 @@ export interface Position {
   unrealizedPnL: number;         // Current unrealized P&L in dollars
   unrealizedPnLPercent: number;  // Current unrealized P&L in percent
   leverage: number;              // Leverage applied to this position
+
+  // Hedge-related fields
+  instrument: InstrumentType;    // 'asset' for regular, 'index' for hedge positions
+  isHedge: boolean;              // True if this is a hedge position
+  beta?: number;                 // Beta used for hedge sizing (only for hedges)
+  hedgesPositionId?: string;     // ID of the position this hedge protects (only for hedges)
 }
 
 // Portfolio state - tracks all positions and accumulated returns
@@ -182,6 +191,10 @@ export interface ClosedPosition {
   realizedPnL: number;
   realizedPnLPercent: number;
   holdingPeriod: number;         // Number of bars held
+
+  // Hedge-related fields
+  instrument: InstrumentType;    // 'asset' for regular, 'index' for hedge positions
+  isHedge: boolean;              // True if this was a hedge position
 }
 
 // Backtesting tick - represents one unit of time

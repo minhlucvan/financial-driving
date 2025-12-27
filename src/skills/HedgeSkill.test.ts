@@ -1,7 +1,8 @@
 /**
  * Hedge Skill Tests
  *
- * Comprehensive tests for the hedge skill activation and processing.
+ * Tests for the hedge skill that creates SHORT positions on the index.
+ * A hedge is a real position, not an abstract insurance mechanism.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -11,6 +12,8 @@ import {
   canActivateHedge,
   getActiveHedgeCoverage,
   getTotalHedgeCost,
+  getTotalHedgeSize,
+  getEffectiveHedgeRatio,
   type ActivateHedgeParams,
   type ProcessHedgeParams,
 } from './HedgeSkill';
@@ -36,12 +39,17 @@ function createActiveHedge(overrides: Partial<HedgeState> = {}): HedgeState {
   return {
     isActive: true,
     type: 'basic',
-    coverage: 0.7,
-    costPaid: 100,
+    positionId: 'hedge_test_123',
+    beta: 0.7,
+    hedgeSize: 3500,
+    entryPrice: 100,
+    costPaid: 17.5,
     remainingCandles: 5,
+    activatedAt: 0,
+    // Legacy fields
+    coverage: 0.7,
     triggerPrice: 100,
     payoutAccumulated: 0,
-    activatedAt: 0,
     ...overrides,
   };
 }
@@ -68,10 +76,27 @@ describe('Hedge Activation', () => {
       expect(result.event.type).toBe('hedge_activated');
       expect(result.newState.activeHedges).toHaveLength(1);
       expect(result.newState.activeHedges![0].type).toBe('basic');
-      expect(result.newState.activeHedges![0].coverage).toBe(0.7);
+      expect(result.newState.activeHedges![0].beta).toBe(0.7);
     });
 
-    it('should calculate hedge cost correctly', () => {
+    it('should calculate hedge size based on beta', () => {
+      const skillState = createTestSkillState();
+
+      const result = activateHedge({
+        hedgeType: 'basic',
+        currentPrice: 100,
+        positionValue: 5000, // $5000 position
+        portfolioValue: 10000,
+        currentTick: 10,
+        skillState,
+      });
+
+      expect(result.success).toBe(true);
+      // Hedge size = positionValue * beta = 5000 * 0.7 = 3500
+      expect(result.newState.activeHedges![0].hedgeSize).toBe(3500);
+    });
+
+    it('should calculate transaction cost correctly', () => {
       const skillState = createTestSkillState();
 
       const result = activateHedge({
@@ -85,8 +110,31 @@ describe('Hedge Activation', () => {
 
       expect(result.success).toBe(true);
       const event = result.event as any;
-      // Basic hedge: 2% of position value = 5000 * 0.02 = 100
-      expect(event.costPaid).toBe(100);
+      // Basic hedge: beta=0.7, cost=0.5%
+      // Hedge size = 5000 * 0.7 = 3500
+      // Cost = 3500 * 0.005 = 17.5
+      expect(event.costPaid).toBe(17.5);
+    });
+
+    it('should create position info for the short index position', () => {
+      const skillState = createTestSkillState();
+
+      const result = activateHedge({
+        hedgeType: 'basic',
+        currentPrice: 100,
+        positionValue: 5000,
+        portfolioValue: 10000,
+        currentTick: 10,
+        skillState,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.newPosition).toBeDefined();
+      expect(result.newPosition!.direction).toBe('short');
+      expect(result.newPosition!.instrument).toBe('index');
+      expect(result.newPosition!.isHedge).toBe(true);
+      expect(result.newPosition!.beta).toBe(0.7);
+      expect(result.newPosition!.sizeInDollars).toBe(3500);
     });
 
     it('should fail if no significant position', () => {
@@ -127,7 +175,7 @@ describe('Hedge Activation', () => {
     it('should fail if max hedges reached', () => {
       const existingHedges = [
         createActiveHedge(),
-        createActiveHedge(),
+        createActiveHedge({ positionId: 'hedge_test_456' }),
       ];
       const skillState = createTestSkillState({
         activeHedges: existingHedges,
@@ -147,15 +195,16 @@ describe('Hedge Activation', () => {
       expect((result.event as any).reason).toBe('max_hedges');
     });
 
-    it('should fail if insufficient funds (cost > 10% portfolio)', () => {
+    it('should fail if insufficient funds (cost > 5% portfolio)', () => {
       const skillState = createTestSkillState();
 
-      // Position value of 10000 with 2% cost = 200
-      // But portfolio is only 1000, so 200 > 10% of 1000 (100)
+      // Position value of 100000 with beta=0.7 = 70000 hedge
+      // Cost = 70000 * 0.005 = 350
+      // But portfolio is only 1000, so 350 > 5% of 1000 (50)
       const result = activateHedge({
         hedgeType: 'basic',
         currentPrice: 100,
-        positionValue: 10000,
+        positionValue: 100000,
         portfolioValue: 1000, // Small portfolio
         currentTick: 10,
         skillState,
@@ -182,7 +231,7 @@ describe('Hedge Activation', () => {
       );
     });
 
-    it('should activate different hedge types with correct coverage', () => {
+    it('should activate different hedge types with correct beta', () => {
       const skillState = createTestSkillState({ playerLevel: 15 }); // High level for all hedges
 
       const tightResult = activateHedge({
@@ -194,8 +243,8 @@ describe('Hedge Activation', () => {
         skillState,
       });
 
-      expect(tightResult.newState.activeHedges![0].coverage).toBe(
-        HEDGE_CONFIGS.tight.coverage
+      expect(tightResult.newState.activeHedges![0].beta).toBe(
+        HEDGE_CONFIGS.tight.beta
       );
     });
 
@@ -229,6 +278,21 @@ describe('Hedge Activation', () => {
 
       expect(result.newState.activeHedges![0].activatedAt).toBe(42);
     });
+
+    it('should store entry price', () => {
+      const skillState = createTestSkillState();
+
+      const result = activateHedge({
+        hedgeType: 'basic',
+        currentPrice: 150,
+        positionValue: 5000,
+        portfolioValue: 10000,
+        currentTick: 10,
+        skillState,
+      });
+
+      expect(result.newState.activeHedges![0].entryPrice).toBe(150);
+    });
   });
 });
 
@@ -245,90 +309,12 @@ describe('Hedge Processing', () => {
       });
 
       const result = processHedges({
-        priceChange: 0,
-        positionValue: 5000,
-        positionDirection: 'long',
+        currentPrice: 100,
         currentTick: 1,
         skillState,
       });
 
       expect(result.newState.activeHedges![0].remainingCandles).toBe(4);
-    });
-
-    it('should absorb losses for long position when price drops', () => {
-      const hedge = createActiveHedge({ coverage: 0.7 });
-      const skillState = createTestSkillState({
-        activeHedges: [hedge],
-      });
-
-      const result = processHedges({
-        priceChange: -0.10, // 10% drop
-        positionValue: 5000,
-        positionDirection: 'long',
-        currentTick: 1,
-        skillState,
-      });
-
-      // Loss = 5000 * 0.10 = 500
-      // Absorbed = 500 * 0.7 = 350
-      expect(result.lossAbsorbed).toBeCloseTo(350, 0);
-      expect(result.hedgesTriggered).toHaveLength(1);
-    });
-
-    it('should absorb losses for short position when price rises', () => {
-      const hedge = createActiveHedge({ coverage: 0.7 });
-      const skillState = createTestSkillState({
-        activeHedges: [hedge],
-      });
-
-      const result = processHedges({
-        priceChange: 0.10, // 10% rise (loss for short)
-        positionValue: 5000,
-        positionDirection: 'short',
-        currentTick: 1,
-        skillState,
-      });
-
-      expect(result.lossAbsorbed).toBeCloseTo(350, 0);
-    });
-
-    it('should not absorb gains for long position', () => {
-      const hedge = createActiveHedge({ coverage: 0.7 });
-      const skillState = createTestSkillState({
-        activeHedges: [hedge],
-      });
-
-      const result = processHedges({
-        priceChange: 0.10, // 10% gain (profit for long)
-        positionValue: 5000,
-        positionDirection: 'long',
-        currentTick: 1,
-        skillState,
-      });
-
-      expect(result.lossAbsorbed).toBe(0);
-      expect(result.hedgesTriggered).toHaveLength(0);
-    });
-
-    it('should accumulate payout on hedge', () => {
-      const hedge = createActiveHedge({
-        coverage: 0.7,
-        payoutAccumulated: 100, // Already paid out 100
-      });
-      const skillState = createTestSkillState({
-        activeHedges: [hedge],
-      });
-
-      const result = processHedges({
-        priceChange: -0.10,
-        positionValue: 5000,
-        positionDirection: 'long',
-        currentTick: 1,
-        skillState,
-      });
-
-      // 100 + 350 = 450
-      expect(result.newState.activeHedges![0].payoutAccumulated).toBeCloseTo(450, 0);
     });
 
     it('should expire hedge when remaining candles reach 0', () => {
@@ -338,18 +324,53 @@ describe('Hedge Processing', () => {
       });
 
       const result = processHedges({
-        priceChange: 0,
-        positionValue: 5000,
-        positionDirection: 'long',
+        currentPrice: 100,
         currentTick: 1,
         skillState,
       });
 
       expect(result.newState.activeHedges).toHaveLength(0);
       expect(result.hedgesExpired).toHaveLength(1);
+      expect(result.hedgesToClose).toContain(hedge.positionId);
       expect(result.events).toContainEqual(
         expect.objectContaining({ type: 'hedge_expired' })
       );
+    });
+
+    it('should provide position ID for closing', () => {
+      const hedge = createActiveHedge({
+        remainingCandles: 1,
+        positionId: 'hedge_to_close_123',
+      });
+      const skillState = createTestSkillState({
+        activeHedges: [hedge],
+      });
+
+      const result = processHedges({
+        currentPrice: 100,
+        currentTick: 1,
+        skillState,
+      });
+
+      expect(result.hedgesToClose).toContain('hedge_to_close_123');
+    });
+
+    it('should use getPositionPnL callback for realized P&L', () => {
+      const hedge = createActiveHedge({ remainingCandles: 1 });
+      const skillState = createTestSkillState({
+        activeHedges: [hedge],
+      });
+
+      const result = processHedges({
+        currentPrice: 100,
+        currentTick: 1,
+        skillState,
+        getPositionPnL: (positionId) => 500, // $500 profit from short
+      });
+
+      const expiredEvent = result.events.find(e => e.type === 'hedge_expired');
+      expect((expiredEvent as any).realizedPnL).toBe(500);
+      expect((expiredEvent as any).wasUseful).toBe(true);
     });
 
     it('should decrement cooldown each tick when no active hedges', () => {
@@ -359,9 +380,7 @@ describe('Hedge Processing', () => {
       });
 
       const result = processHedges({
-        priceChange: 0,
-        positionValue: 5000,
-        positionDirection: 'long',
+        currentPrice: 100,
         currentTick: 1,
         skillState,
       });
@@ -376,9 +395,7 @@ describe('Hedge Processing', () => {
       });
 
       const result = processHedges({
-        priceChange: 0,
-        positionValue: 5000,
-        positionDirection: 'long',
+        currentPrice: 100,
         currentTick: 1,
         skillState,
       });
@@ -388,17 +405,15 @@ describe('Hedge Processing', () => {
 
     it('should process multiple hedges', () => {
       const hedges = [
-        createActiveHedge({ remainingCandles: 3, coverage: 0.5 }),
-        createActiveHedge({ remainingCandles: 5, coverage: 0.3 }),
+        createActiveHedge({ remainingCandles: 3, positionId: 'hedge_1' }),
+        createActiveHedge({ remainingCandles: 5, positionId: 'hedge_2' }),
       ];
       const skillState = createTestSkillState({
         activeHedges: hedges,
       });
 
       const result = processHedges({
-        priceChange: -0.10,
-        positionValue: 5000,
-        positionDirection: 'long',
+        currentPrice: 100,
         currentTick: 1,
         skillState,
       });
@@ -407,90 +422,41 @@ describe('Hedge Processing', () => {
       expect(result.newState.activeHedges).toHaveLength(2);
       expect(result.newState.activeHedges![0].remainingCandles).toBe(2);
       expect(result.newState.activeHedges![1].remainingCandles).toBe(4);
-
-      // Loss = 500, absorbed by both = 500*0.5 + 500*0.3 = 250 + 150 = 400
-      expect(result.lossAbsorbed).toBeCloseTo(400, 0);
     });
 
-    it('should track hedge usefulness on expiry', () => {
-      const usefulHedge = createActiveHedge({
-        remainingCandles: 1,
-        payoutAccumulated: 100, // Absorbed some losses
-      });
-      const uselessHedge = createActiveHedge({
-        remainingCandles: 1,
-        payoutAccumulated: 0, // Never triggered
-      });
-
-      const skillStateUseful = createTestSkillState({
-        activeHedges: [usefulHedge],
-      });
-
-      const skillStateUseless = createTestSkillState({
-        activeHedges: [uselessHedge],
-      });
-
-      const resultUseful = processHedges({
-        priceChange: 0,
-        positionValue: 5000,
-        positionDirection: 'long',
-        currentTick: 1,
-        skillState: skillStateUseful,
-      });
-
-      const resultUseless = processHedges({
-        priceChange: 0,
-        positionValue: 5000,
-        positionDirection: 'long',
-        currentTick: 1,
-        skillState: skillStateUseless,
-      });
-
-      const usefulEvent = resultUseful.events.find(e => e.type === 'hedge_expired');
-      const uselessEvent = resultUseless.events.find(e => e.type === 'hedge_expired');
-
-      expect((usefulEvent as any).wasUseful).toBe(true);
-      expect((uselessEvent as any).wasUseful).toBe(false);
-    });
-
-    it('should provide extra coverage for tail hedge on large drops', () => {
-      const hedge = createActiveHedge({
-        type: 'tail',
-        coverage: 0.5, // Base coverage
-      });
+    it('should set cooldown when hedge expires', () => {
+      const hedge = createActiveHedge({ remainingCandles: 1, type: 'basic' });
       const skillState = createTestSkillState({
         activeHedges: [hedge],
+        hedgeCooldown: 0,
       });
 
       const result = processHedges({
-        priceChange: -0.25, // 25% crash (> 20% threshold)
-        positionValue: 5000,
-        positionDirection: 'long',
+        currentPrice: 100,
         currentTick: 1,
         skillState,
       });
 
-      // Loss = 5000 * 0.25 = 1250
-      // Tail hedge gets 150% coverage on crashes > 20%
-      // Absorbed = 1250 * 1.50 = 1875
-      expect(result.lossAbsorbed).toBeCloseTo(1875, 0);
+      // Basic hedge has cooldown of 5
+      expect(result.newState.hedgeCooldown).toBe(HEDGE_CONFIGS.basic.cooldown);
     });
 
-    it('should handle no position direction', () => {
-      const hedge = createActiveHedge();
+    it('should apply cooldown reduction from upgrades', () => {
+      const hedge = createActiveHedge({ remainingCandles: 1, type: 'basic' });
       const skillState = createTestSkillState({
         activeHedges: [hedge],
+        hedgeCooldown: 0,
+        hedgeCooldownReduction: 2,
       });
 
       const result = processHedges({
-        priceChange: -0.10,
-        positionValue: 0,
-        positionDirection: 'none',
+        currentPrice: 100,
         currentTick: 1,
         skillState,
       });
 
-      expect(result.lossAbsorbed).toBe(0);
+      // Basic cooldown (5) - reduction (2) = 3, but min is 1
+      expect(result.newState.hedgeCooldown).toBe(Math.max(1, HEDGE_CONFIGS.basic.cooldown - 2));
     });
   });
 });
@@ -507,10 +473,10 @@ describe('Hedge Configurations', () => {
     expect(HEDGE_CONFIGS.dynamic).toBeDefined();
   });
 
-  it('should have valid coverage values (0-1)', () => {
+  it('should have valid beta values (0-1)', () => {
     Object.values(HEDGE_CONFIGS).forEach(config => {
-      expect(config.coverage).toBeGreaterThan(0);
-      expect(config.coverage).toBeLessThanOrEqual(1);
+      expect(config.beta).toBeGreaterThan(0);
+      expect(config.beta).toBeLessThanOrEqual(1);
     });
   });
 
@@ -533,8 +499,8 @@ describe('Hedge Configurations', () => {
     });
   });
 
-  it('tight hedge should have higher coverage and cost than basic', () => {
-    expect(HEDGE_CONFIGS.tight.coverage).toBeGreaterThan(HEDGE_CONFIGS.basic.coverage);
+  it('tight hedge should have higher beta and cost than basic', () => {
+    expect(HEDGE_CONFIGS.tight.beta).toBeGreaterThan(HEDGE_CONFIGS.basic.beta);
     expect(HEDGE_CONFIGS.tight.cost).toBeGreaterThan(HEDGE_CONFIGS.basic.cost);
   });
 
@@ -544,6 +510,10 @@ describe('Hedge Configurations', () => {
 
   it('tail hedge should have longer duration', () => {
     expect(HEDGE_CONFIGS.tail.duration).toBeGreaterThan(HEDGE_CONFIGS.basic.duration);
+  });
+
+  it('tail hedge should have lower beta than basic', () => {
+    expect(HEDGE_CONFIGS.tail.beta).toBeLessThan(HEDGE_CONFIGS.basic.beta);
   });
 });
 
@@ -575,7 +545,7 @@ describe('Utility Functions', () => {
     it('should return false when max hedges reached', () => {
       const skillState = createTestSkillState({
         hedgeCooldown: 0,
-        activeHedges: [createActiveHedge(), createActiveHedge()],
+        activeHedges: [createActiveHedge(), createActiveHedge({ positionId: 'hedge_2' })],
         maxHedges: 2,
       });
 
@@ -589,12 +559,12 @@ describe('Utility Functions', () => {
       expect(getActiveHedgeCoverage(skillState)).toBe(0);
     });
 
-    it('should return max coverage from active hedges', () => {
+    it('should return max beta from active hedges', () => {
       const skillState = createTestSkillState({
         activeHedges: [
-          createActiveHedge({ coverage: 0.5 }),
-          createActiveHedge({ coverage: 0.8 }),
-          createActiveHedge({ coverage: 0.3 }),
+          createActiveHedge({ beta: 0.5 }),
+          createActiveHedge({ beta: 0.8, positionId: 'hedge_2' }),
+          createActiveHedge({ beta: 0.3, positionId: 'hedge_3' }),
         ],
       });
 
@@ -612,11 +582,58 @@ describe('Utility Functions', () => {
       const skillState = createTestSkillState({
         activeHedges: [
           createActiveHedge({ costPaid: 100 }),
-          createActiveHedge({ costPaid: 150 }),
+          createActiveHedge({ costPaid: 150, positionId: 'hedge_2' }),
         ],
       });
 
       expect(getTotalHedgeCost(skillState)).toBe(250);
+    });
+  });
+
+  describe('getTotalHedgeSize', () => {
+    it('should return 0 with no hedges', () => {
+      const skillState = createTestSkillState({ activeHedges: [] });
+      expect(getTotalHedgeSize(skillState)).toBe(0);
+    });
+
+    it('should sum all hedge sizes', () => {
+      const skillState = createTestSkillState({
+        activeHedges: [
+          createActiveHedge({ hedgeSize: 3500 }),
+          createActiveHedge({ hedgeSize: 2000, positionId: 'hedge_2' }),
+        ],
+      });
+
+      expect(getTotalHedgeSize(skillState)).toBe(5500);
+    });
+  });
+
+  describe('getEffectiveHedgeRatio', () => {
+    it('should return 0 with no hedges', () => {
+      const skillState = createTestSkillState({ activeHedges: [] });
+      expect(getEffectiveHedgeRatio(skillState)).toBe(0);
+    });
+
+    it('should sum all betas for total hedge ratio', () => {
+      const skillState = createTestSkillState({
+        activeHedges: [
+          createActiveHedge({ beta: 0.5 }),
+          createActiveHedge({ beta: 0.3, positionId: 'hedge_2' }),
+        ],
+      });
+
+      expect(getEffectiveHedgeRatio(skillState)).toBe(0.8);
+    });
+
+    it('should allow over-hedging (ratio > 1)', () => {
+      const skillState = createTestSkillState({
+        activeHedges: [
+          createActiveHedge({ beta: 0.7 }),
+          createActiveHedge({ beta: 0.9, positionId: 'hedge_2' }),
+        ],
+      });
+
+      expect(getEffectiveHedgeRatio(skillState)).toBe(1.6);
     });
   });
 });
@@ -626,62 +643,6 @@ describe('Utility Functions', () => {
 // ============================================
 
 describe('Edge Cases', () => {
-  it('should handle zero price change', () => {
-    const hedge = createActiveHedge();
-    const skillState = createTestSkillState({
-      activeHedges: [hedge],
-    });
-
-    const result = processHedges({
-      priceChange: 0,
-      positionValue: 5000,
-      positionDirection: 'long',
-      currentTick: 1,
-      skillState,
-    });
-
-    expect(result.lossAbsorbed).toBe(0);
-    expect(result.newState.activeHedges).toHaveLength(1);
-  });
-
-  it('should handle very small price changes', () => {
-    const hedge = createActiveHedge({ coverage: 0.7 });
-    const skillState = createTestSkillState({
-      activeHedges: [hedge],
-    });
-
-    const result = processHedges({
-      priceChange: -0.0001, // 0.01% drop
-      positionValue: 5000,
-      positionDirection: 'long',
-      currentTick: 1,
-      skillState,
-    });
-
-    // Loss = 5000 * 0.0001 = 0.5
-    // Absorbed = 0.5 * 0.7 = 0.35
-    expect(result.lossAbsorbed).toBeCloseTo(0.35, 2);
-  });
-
-  it('should handle very large position values', () => {
-    const hedge = createActiveHedge({ coverage: 0.7 });
-    const skillState = createTestSkillState({
-      activeHedges: [hedge],
-    });
-
-    const result = processHedges({
-      priceChange: -0.10,
-      positionValue: 1000000, // $1M position
-      positionDirection: 'long',
-      currentTick: 1,
-      skillState,
-    });
-
-    // Loss = 1M * 0.10 = 100k
-    // Absorbed = 100k * 0.7 = 70k
-    expect(result.lossAbsorbed).toBeCloseTo(70000, 0);
-  });
-
   it('should handle activation at tick 0', () => {
     const skillState = createTestSkillState();
 
@@ -704,42 +665,56 @@ describe('Edge Cases', () => {
     });
 
     const result = processHedges({
-      priceChange: -0.10,
-      positionValue: 5000,
-      positionDirection: 'long',
+      currentPrice: 100,
       currentTick: 1,
       skillState,
     });
 
-    expect(result.lossAbsorbed).toBe(0);
+    expect(result.hedgesToClose).toHaveLength(0);
     expect(result.newState.activeHedges).toHaveLength(0);
   });
 
   it('should apply cost reduction from upgrades', () => {
     const skillState = createTestSkillState({
-      hedgeCostReduction: 0.01, // 1% reduction
+      hedgeCostReduction: 0.002, // 0.2% reduction
     });
 
     const result = activateHedge({
-      hedgeType: 'basic', // 2% base cost
+      hedgeType: 'basic', // 0.5% base cost
       currentPrice: 100,
-      positionValue: 5000,
+      positionValue: 5000, // hedge size = 5000 * 0.7 = 3500
       portfolioValue: 10000,
       currentTick: 0,
       skillState,
     });
 
-    // Cost should be (2% - 1%) = 1% of 5000 = 50
-    expect((result.event as any).costPaid).toBe(50);
+    // Cost should be (0.5% - 0.2%) = 0.3% of 3500 = 10.5
+    expect((result.event as any).costPaid).toBe(10.5);
   });
 
   it('should enforce minimum cost even with high reduction', () => {
     const skillState = createTestSkillState({
-      hedgeCostReduction: 0.02, // Equal to basic cost
+      hedgeCostReduction: 0.01, // More than basic cost
     });
 
     const result = activateHedge({
-      hedgeType: 'basic', // 2% base cost
+      hedgeType: 'basic', // 0.5% base cost
+      currentPrice: 100,
+      positionValue: 5000, // hedge size = 5000 * 0.7 = 3500
+      portfolioValue: 10000,
+      currentTick: 0,
+      skillState,
+    });
+
+    // Minimum cost is 0.1%, so 3500 * 0.001 = 3.5
+    expect((result.event as any).costPaid).toBe(3.5);
+  });
+
+  it('should generate unique position IDs', () => {
+    const skillState = createTestSkillState();
+
+    const result1 = activateHedge({
+      hedgeType: 'basic',
       currentPrice: 100,
       positionValue: 5000,
       portfolioValue: 10000,
@@ -747,8 +722,18 @@ describe('Edge Cases', () => {
       skillState,
     });
 
-    // Minimum cost is 0.5%, so 5000 * 0.005 = 25
-    expect((result.event as any).costPaid).toBe(25);
+    const result2 = activateHedge({
+      hedgeType: 'basic',
+      currentPrice: 100,
+      positionValue: 5000,
+      portfolioValue: 10000,
+      currentTick: 1,
+      skillState,
+    });
+
+    expect(result1.newState.activeHedges![0].positionId).not.toBe(
+      result2.newState.activeHedges![0].positionId
+    );
   });
 });
 

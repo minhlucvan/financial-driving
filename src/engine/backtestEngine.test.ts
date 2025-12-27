@@ -54,6 +54,9 @@ function createTestPosition(overrides: Partial<Position> = {}): Position {
     unrealizedPnL: 0,
     unrealizedPnLPercent: 0,
     leverage: 1,
+    // New fields for hedge support
+    instrument: 'asset',
+    isHedge: false,
     ...overrides,
   };
 }
