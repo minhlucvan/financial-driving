@@ -261,6 +261,9 @@ function create ()
     // Create fog of war (historical vs future road)
     createFogOfWar(this);
 
+    // Create stress particle system
+    createStressParticles(this);
+
     // Restart key
     var RKey = this.input.keyboard.addKey('R');
     RKey.on('down', function () {
@@ -298,6 +301,16 @@ function create ()
     eKey.on('down', function () {
         wealthEngine.setCashBuffer(wealthEngine.cashBuffer - 0.05);
         console.log('Cash Buffer: ' + (wealthEngine.cashBuffer * 100).toFixed(0) + '%');
+    }, this);
+
+    // Strategy preset cycling: T key
+    var tKey = this.input.keyboard.addKey('T');
+    tKey.on('down', function () {
+        const strategy = wealthEngine.cycleStrategy();
+        if (strategy) {
+            console.log('Strategy: ' + strategy.emoji + ' ' + strategy.name);
+            console.log('  ' + strategy.description);
+        }
     }, this);
 
     this.matter.add.mouseSpring();
@@ -435,7 +448,7 @@ function createMarketHUD(scene) {
         padding: { x: 8, y: 4 }
     }).setScrollFactor(0).setDepth(1000);
 
-    scene.add.text(16, screen_height - 30, 'R: Restart | N: Dataset | V: Fog | F: Fullscreen', {
+    scene.add.text(16, screen_height - 30, 'R: Restart | N: Dataset | T: Strategy | V: Fog | F: Fullscreen', {
         fontFamily: 'monospace',
         fontSize: '11px',
         color: '#666666',
@@ -619,6 +632,14 @@ function updateFogOfWar(scene) {
     const carY = vehicle.mainBody.y;
     const camera = scene.cameras.main;
 
+    // === VIX → FOG INTENSITY ===
+    // Higher volatility = thicker fog (more uncertain future)
+    // Low volatility (calm market) = thinner fog
+    // Base opacity: 0.5, range: 0.3 to 0.8
+    const volatility = getCurrentVolatility();
+    const vixModifier = 0.3 + (volatility * 0.5); // 0.3 to 0.8 based on volatility
+    const fogOpacity = Math.min(0.8, Math.max(0.3, vixModifier));
+
     // Clear previous drawings
     fogOfWar.fogGraphics.clear();
     fogOfWar.gradientGraphics.clear();
@@ -631,10 +652,11 @@ function updateFogOfWar(scene) {
     const fogBottom = camera.scrollY + screen_height + 200;
 
     // Draw gradient transition zone (transparent to fog)
+    // Uses dynamic fogOpacity based on VIX/volatility
     const gradientSteps = 20;
     for (let i = 0; i < gradientSteps; i++) {
         const progress = i / gradientSteps;
-        const alpha = progress * fogOfWar.fogOpacity;
+        const alpha = progress * fogOpacity; // Dynamic opacity
         const stepX = carX + progress * fogOfWar.gradientWidth;
         const stepWidth = fogOfWar.gradientWidth / gradientSteps;
 
@@ -642,8 +664,9 @@ function updateFogOfWar(scene) {
         fogOfWar.gradientGraphics.fillRect(stepX, fogTop, stepWidth + 1, fogBottom - fogTop);
     }
 
-    // Draw main fog area (solid 50% opacity)
-    fogOfWar.fogGraphics.fillStyle(0x1a1a2e, fogOfWar.fogOpacity);
+    // Draw main fog area (opacity varies with VIX)
+    // High volatility = thicker fog = more uncertain future
+    fogOfWar.fogGraphics.fillStyle(0x1a1a2e, fogOpacity);
     fogOfWar.fogGraphics.fillRect(
         carX + fogOfWar.gradientWidth,
         fogTop,
@@ -1409,6 +1432,7 @@ function checkCrashConditions() {
  * - Leverage → Torque (more power)
  * - Cash Buffer → Brake power (better stopping)
  * - Volatility → Traction + Camera shake (rougher road)
+ * - RSI extremes → Slippery edges (overbought/oversold)
  */
 function applyFinancialPhysics(scene) {
     if (!vehicle || !vehicle.mainBody || !wealthEngine) return;
@@ -1417,13 +1441,28 @@ function applyFinancialPhysics(scene) {
     const cashBuffer = wealthEngine.cashBuffer;
     const volatility = getCurrentVolatility();
 
+    // === RSI → TRACTION MODIFIER ===
+    // Overbought (RSI > 70) or Oversold (RSI < 30) = slippery edges
+    // Market extremes are unstable - hard to maintain grip
+    let rsiTractionPenalty = 0;
+    if (marketIndicators) {
+        const rsi = marketIndicators.indicators.momentum.rsi;
+        if (rsi > 70) {
+            // Overbought: increasingly slippery as RSI approaches 100
+            rsiTractionPenalty = (rsi - 70) / 30 * 0.3; // Up to 30% penalty
+        } else if (rsi < 30) {
+            // Oversold: increasingly slippery as RSI approaches 0
+            rsiTractionPenalty = (30 - rsi) / 30 * 0.3; // Up to 30% penalty
+        }
+    }
+
     // === GAIN-LOSS ASYMMETRY: Recovery Drag ===
     // When in drawdown, climbing back is physically harder
     // This makes the L/(1-L) formula FELT through the car
     const recoveryDrag = wealthEngine.getRecoveryDrag();
 
-    // Update vehicle physics modifiers (including recovery drag)
-    vehicle.updateFinancialPhysics(leverage, cashBuffer, volatility, recoveryDrag);
+    // Update vehicle physics modifiers (including recovery drag and RSI)
+    vehicle.updateFinancialPhysics(leverage, cashBuffer, volatility, recoveryDrag, rsiTractionPenalty);
 
     // Apply volatility shake to car (simulates rough road)
     vehicle.applyVolatilityShake(volatility);
@@ -1453,8 +1492,82 @@ function applyCameraShake(scene, volatility) {
     scene.cameras.main.shake(duration, intensity * 0.001, false);
 }
 
+// ============================================
+// VISUAL STRESS INDICATORS
+// ============================================
+// Car visual feedback based on financial state:
+// - Tint color shows risk level
+// - Particles show stress (smoke)
+// - Flashing shows imminent danger
+
+var stressParticles = null;
+var lastParticleTime = 0;
+
 /**
- * Apply visual stress effects to car
+ * Create stress particle system for visual feedback
+ */
+function createStressParticles(scene) {
+    stressParticles = {
+        particles: [],
+        maxParticles: 30,
+        scene: scene
+    };
+}
+
+/**
+ * Emit a stress particle (smoke puff)
+ */
+function emitStressParticle(x, y, intensity) {
+    if (!stressParticles || !stressParticles.scene) return;
+
+    const now = Date.now();
+    if (now - lastParticleTime < 50) return; // Rate limit
+    lastParticleTime = now;
+
+    // Create smoke particle as a circle
+    const size = 8 + Math.random() * 12 * intensity;
+    const particle = stressParticles.scene.add.circle(x, y, size, 0x444444, 0.6);
+    particle.setDepth(100);
+
+    stressParticles.particles.push({
+        obj: particle,
+        vx: (Math.random() - 0.5) * 2,
+        vy: -1 - Math.random() * 2,
+        life: 1.0,
+        decay: 0.02 + Math.random() * 0.02
+    });
+
+    // Limit particle count
+    while (stressParticles.particles.length > stressParticles.maxParticles) {
+        const old = stressParticles.particles.shift();
+        old.obj.destroy();
+    }
+}
+
+/**
+ * Update stress particles (called each frame)
+ */
+function updateStressParticles() {
+    if (!stressParticles) return;
+
+    for (let i = stressParticles.particles.length - 1; i >= 0; i--) {
+        const p = stressParticles.particles[i];
+        p.obj.x += p.vx;
+        p.obj.y += p.vy;
+        p.vy -= 0.05;
+        p.life -= p.decay;
+        p.obj.setAlpha(p.life * 0.6);
+        p.obj.setScale(1 + (1 - p.life) * 0.5);
+
+        if (p.life <= 0) {
+            p.obj.destroy();
+            stressParticles.particles.splice(i, 1);
+        }
+    }
+}
+
+/**
+ * Apply visual stress effects to car based on financial state
  */
 function applyStressVisuals() {
     if (!vehicle || !vehicle.mainBody || !wealthEngine) return;
@@ -1462,25 +1575,76 @@ function applyStressVisuals() {
     const leverage = wealthEngine.leverage;
     const stress = wealthEngine.stress / wealthEngine.maxStress;
     const volatility = getCurrentVolatility();
+    const proximity = wealthEngine.getLiquidationProximity();
+    const inRecovery = wealthEngine.inRecoveryMode;
+    const recoveryDrag = wealthEngine.getRecoveryDrag();
 
-    // Combined risk indicator
-    const riskLevel = (stress * 0.4) + ((leverage - 1) / 2 * 0.3) + (volatility * 0.3);
+    updateStressParticles();
 
-    if (riskLevel > 0.7 || stress > 0.7) {
-        // High risk: red tint
-        vehicle.mainBody.setTint(0xff6666);
-    } else if (riskLevel > 0.5 || stress > 0.4) {
-        // Medium risk: orange tint
-        vehicle.mainBody.setTint(0xffaa66);
-    } else if (leverage > 2) {
-        // High leverage: yellow tint
+    // === MARGIN CALL PROXIMITY VISUALS ===
+    if (proximity > 0.9) {
+        // CRITICAL: Flashing red
+        const flash = Math.sin(Date.now() / 50) > 0;
+        vehicle.mainBody.setTint(flash ? 0xff0000 : 0xff4444);
+        if (Math.random() > 0.3) {
+            emitStressParticle(
+                vehicle.mainBody.x + (Math.random() - 0.5) * 40,
+                vehicle.mainBody.y - 20, 1.0
+            );
+        }
+    } else if (proximity > 0.7) {
+        // DANGER: Solid red with smoke
+        vehicle.mainBody.setTint(0xff2222);
+        if (Math.random() > 0.5) {
+            emitStressParticle(
+                vehicle.mainBody.x + (Math.random() - 0.5) * 30,
+                vehicle.mainBody.y - 15, 0.7
+            );
+        }
+    } else if (proximity > 0.5) {
+        // WARNING: Orange-red
+        vehicle.mainBody.setTint(0xff6633);
+        if (stress > 0.5 && Math.random() > 0.7) {
+            emitStressParticle(vehicle.mainBody.x, vehicle.mainBody.y - 10, 0.4);
+        }
+    } else if (stress > 0.7) {
+        // High stress: Orange
+        vehicle.mainBody.setTint(0xffaa44);
+        if (Math.random() > 0.8) {
+            emitStressParticle(vehicle.mainBody.x, vehicle.mainBody.y - 10, 0.3);
+        }
+    } else if (leverage > 2.5) {
+        // Very high leverage: Yellow-orange
+        vehicle.mainBody.setTint(0xffcc44);
+    } else if (leverage > 1.5) {
+        // Moderate leverage: Light yellow
         vehicle.mainBody.setTint(0xffff88);
-    } else if (volatility > 0.5) {
-        // High volatility: slight blue tint
+    } else if (inRecovery && recoveryDrag > 1.2) {
+        // Deep recovery: Blue-gray (struggling)
+        vehicle.mainBody.setTint(0x8888aa);
+    } else if (volatility > 0.6) {
+        // High volatility: Light blue
         vehicle.mainBody.setTint(0xaaccff);
+    } else if (wealthEngine.wealth > wealthEngine.peakWealth * 0.98) {
+        // At peak: Green glow
+        vehicle.mainBody.setTint(0xaaffaa);
     } else {
-        // Normal: clear tint
         vehicle.mainBody.clearTint();
+    }
+
+    // === WHEEL TRACTION VISUAL ===
+    if (vehicle.wheel1 && vehicle.wheel2) {
+        const traction = vehicle.tractionMultiplier || 1.0;
+        if (traction < 0.7) {
+            vehicle.wheel1.setTint(0x6688ff);
+            vehicle.wheel2.setTint(0x6688ff);
+        } else if (traction < 0.9) {
+            vehicle.wheel1.setTint(0xaaccff);
+            vehicle.wheel2.setTint(0xaaccff);
+        } else {
+            vehicle.wheel1.clearTint();
+            vehicle.wheel2.clearTint();
+        }
     }
 }
 

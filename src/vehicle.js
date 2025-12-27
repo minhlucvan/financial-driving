@@ -64,8 +64,9 @@ class Vehicle
      * @param {number} cashBuffer - Cash buffer percentage (0-1, higher = more brake power)
      * @param {number} volatility - Market volatility (0-1, higher = worse traction)
      * @param {number} recoveryDrag - Drag from being in drawdown (1.0 = normal, >1 = harder)
+     * @param {number} rsiPenalty - Traction penalty from RSI extremes (0-0.3)
      */
-    updateFinancialPhysics(leverage, cashBuffer, volatility, recoveryDrag = 1.0) {
+    updateFinancialPhysics(leverage, cashBuffer, volatility, recoveryDrag = 1.0, rsiPenalty = 0) {
         // === LEVERAGE → TORQUE ===
         // Higher leverage = more power, but with diminishing returns above 2x
         // Formula: 0.8 + (leverage * 0.4) gives range 1.0 to 2.0 for 0.5x to 3x leverage
@@ -91,10 +92,18 @@ class Vehicle
         // High volatility = reduced traction (slippery roads)
         // 0 volatility = 1.0 traction, max volatility = 0.5 traction
         this.tractionMultiplier = 1.0 - (volatility * 0.5);
-        this.tractionMultiplier = Math.max(0.5, this.tractionMultiplier);
 
-        // Store recovery drag for HUD display
+        // === RSI EXTREMES → SLIPPERY EDGES ===
+        // Overbought (RSI > 70) or Oversold (RSI < 30) = additional traction penalty
+        // Market extremes are unstable - the "edge" of the road is slippery
+        this.tractionMultiplier -= rsiPenalty;
+
+        // Minimum traction floor
+        this.tractionMultiplier = Math.max(0.4, this.tractionMultiplier);
+
+        // Store for HUD display
         this.recoveryDrag = recoveryDrag;
+        this.rsiPenalty = rsiPenalty;
     }
 
     /**

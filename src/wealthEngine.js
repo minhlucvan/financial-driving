@@ -5,6 +5,50 @@
  * Drive toward financial freedom!
  */
 
+// ============================================
+// STRATEGY PRESETS
+// ============================================
+// Each strategy feels different to drive:
+// - Conservative: Slow but stable, hard to crash
+// - Balanced: Middle ground
+// - Aggressive: Fast but dangerous, easy to crash
+// - YOLO: Maximum risk, spectacular wins or crashes
+
+const STRATEGY_PRESETS = {
+    conservative: {
+        name: 'Conservative',
+        emoji: '🐢',
+        leverage: 0.5,
+        cashBuffer: 0.4,
+        description: 'Big brakes, small engine. Slow but safe.',
+        color: '#44aa44'
+    },
+    balanced: {
+        name: 'Balanced',
+        emoji: '⚖️',
+        leverage: 1.0,
+        cashBuffer: 0.2,
+        description: 'Moderate risk, moderate reward.',
+        color: '#4488ff'
+    },
+    aggressive: {
+        name: 'Aggressive',
+        emoji: '🐎',
+        leverage: 2.0,
+        cashBuffer: 0.1,
+        description: 'Strong engine, weak brakes. High risk.',
+        color: '#ff8844'
+    },
+    yolo: {
+        name: 'YOLO',
+        emoji: '🧨',
+        leverage: 3.0,
+        cashBuffer: 0.02,
+        description: 'Maximum leverage. Spectacular wins or crashes.',
+        color: '#ff4444'
+    }
+};
+
 class WealthEngine {
     constructor(config = {}) {
         // Starting wealth
@@ -116,6 +160,13 @@ class WealthEngine {
             bestDay: 0,
             worstDay: 0
         };
+
+        // Return history for Sharpe ratio calculation
+        this.returnHistory = [];
+        this.maxReturnHistory = 252; // ~1 year of trading days
+
+        // Current strategy
+        this.currentStrategy = null;
     }
 
     /**
@@ -132,6 +183,46 @@ class WealthEngine {
     setCashBuffer(newBuffer) {
         this.cashBuffer = Math.max(0, Math.min(0.5, newBuffer));
         this.updateStability();
+    }
+
+    /**
+     * Apply a strategy preset
+     * @param {string} strategyKey - One of: conservative, balanced, aggressive, yolo
+     * @returns {Object} The applied strategy preset
+     */
+    applyStrategy(strategyKey) {
+        const strategy = STRATEGY_PRESETS[strategyKey];
+        if (!strategy) {
+            console.warn('Unknown strategy:', strategyKey);
+            return null;
+        }
+
+        this.currentStrategy = strategyKey;
+        this.setLeverage(strategy.leverage);
+        this.setCashBuffer(strategy.cashBuffer);
+
+        console.log('Strategy applied:', strategy.name, strategy.emoji);
+        return strategy;
+    }
+
+    /**
+     * Get current strategy info
+     */
+    getCurrentStrategy() {
+        if (!this.currentStrategy) {
+            return { name: 'Custom', emoji: '⚙️', description: 'Manual settings' };
+        }
+        return STRATEGY_PRESETS[this.currentStrategy] || { name: 'Custom', emoji: '⚙️' };
+    }
+
+    /**
+     * Cycle to next strategy preset
+     */
+    cycleStrategy() {
+        const strategies = Object.keys(STRATEGY_PRESETS);
+        const currentIdx = strategies.indexOf(this.currentStrategy);
+        const nextIdx = (currentIdx + 1) % strategies.length;
+        return this.applyStrategy(strategies[nextIdx]);
     }
 
     /**
@@ -539,8 +630,18 @@ class WealthEngine {
         }
 
         // Apply wealth change
+        const previousWealth = this.wealth;
         this.wealth += wealthChange;
         this.daysTraded++;
+
+        // Track daily return for Sharpe ratio
+        if (previousWealth > 0) {
+            const dailyReturn = wealthChange / previousWealth;
+            this.returnHistory.push(dailyReturn);
+            if (this.returnHistory.length > this.maxReturnHistory) {
+                this.returnHistory.shift();
+            }
+        }
 
         // Update peak and drawdown
         if (this.wealth > this.peakWealth) {
@@ -705,6 +806,58 @@ class WealthEngine {
     }
 
     /**
+     * Get Sharpe Ratio - risk-adjusted return measure
+     *
+     * Sharpe = (Mean Return - Risk Free Rate) / Std Dev of Returns
+     *
+     * In-game interpretation:
+     * - Sharpe > 2.0: Excellent (smooth, consistent gains)
+     * - Sharpe 1.0-2.0: Good (solid performance)
+     * - Sharpe 0.5-1.0: Acceptable (volatile but positive)
+     * - Sharpe < 0.5: Poor (too much risk for the return)
+     * - Sharpe < 0: Negative returns!
+     *
+     * @returns {number} Annualized Sharpe ratio
+     */
+    getSharpe() {
+        if (this.returnHistory.length < 10) return 0;
+
+        // Calculate mean daily return
+        const sum = this.returnHistory.reduce((a, b) => a + b, 0);
+        const mean = sum / this.returnHistory.length;
+
+        // Calculate standard deviation
+        const squaredDiffs = this.returnHistory.map(r => Math.pow(r - mean, 2));
+        const variance = squaredDiffs.reduce((a, b) => a + b, 0) / this.returnHistory.length;
+        const stdDev = Math.sqrt(variance);
+
+        if (stdDev === 0) return mean > 0 ? 999 : 0;
+
+        // Risk-free rate (daily) - assume ~3% annual
+        const riskFreeDaily = 0.03 / 252;
+
+        // Daily Sharpe
+        const dailySharpe = (mean - riskFreeDaily) / stdDev;
+
+        // Annualize (multiply by sqrt of trading days)
+        const annualizedSharpe = dailySharpe * Math.sqrt(252);
+
+        return annualizedSharpe;
+    }
+
+    /**
+     * Get Sharpe quality label
+     */
+    getSharpeLabel() {
+        const sharpe = this.getSharpe();
+        if (sharpe >= 2.0) return { label: 'EXCELLENT', color: '#44ff44' };
+        if (sharpe >= 1.0) return { label: 'GOOD', color: '#88ff88' };
+        if (sharpe >= 0.5) return { label: 'OK', color: '#ffff44' };
+        if (sharpe >= 0) return { label: 'POOR', color: '#ff8844' };
+        return { label: 'NEGATIVE', color: '#ff4444' };
+    }
+
+    /**
      * Get game summary for end screen
      */
     getSummary() {
@@ -735,7 +888,12 @@ class WealthEngine {
             liquidationProximity: this.liquidationProximity,
             // Recovery asymmetry stats
             recoveryInfo: this.getRecoveryInfo(),
-            lossAversionLambda: this.lossAversionLambda
+            lossAversionLambda: this.lossAversionLambda,
+            // Sharpe ratio (risk-adjusted performance)
+            sharpe: this.getSharpe(),
+            sharpeLabel: this.getSharpeLabel(),
+            // Strategy
+            strategy: this.getCurrentStrategy()
         };
     }
 
@@ -781,6 +939,9 @@ class WealthEngine {
             bestDay: 0,
             worstDay: 0
         };
+
+        // Reset return history for Sharpe calculation
+        this.returnHistory = [];
     }
 }
 
